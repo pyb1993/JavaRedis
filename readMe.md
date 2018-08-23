@@ -124,3 +124,68 @@ class RedisObject{
         return (long)ret;
     }
 ##### 实际上这几个参数一个都不能少,否则误差就会变大(原理和实现还是差距很大的,具体推导感兴趣的自己取看paper,redis源码里面给了paper的名字)
+---
+### Version-2架构
+	增加了几个重要功能:
+	1 实现了异步线程辅助完成删除过期key
+	2 删除过期key使用定时轮+最小堆+随机删除
+	3 实现了普通字典和支持并发的字典的切换
+
+#### <li> 同步删除的策略:
+ 我们对可能的使用模型分成两种:
+  1 大量的短时间的过期(分布式锁)
+  2 大量长时间的过期(普通的cache应用)
+  3 1 2 的结合 
+	<li>对于 1,我们可以使用一个定时轮+最小堆的结构来实现,首先核心数据结构是:
+   
+
+	 static PriorityList[] expires;
+	 PriorityList则是对优先队列的封装
+	这样每来一个过期事件,我们就判断过期时间是不是小于一个规定的时间,比如2个小时;
+	如果小于就可以直接塞到对应的`PriorityList`里面,具体：
+	
+	            if(delay < slotNum * 4){
+	            /* 如果是那种延迟很大的过期key,就不放在定时轮里面,而是采用原来redis的随机抽样做法
+	            *  因为如果过期时间很长,就会导致定时轮里面存储太多数据,从而导致插入变慢,而且占用太多内存太久
+	            */
+	            int index = (int)((now + delay ) & (slotNum - 1));// 计算应该放到的index
+	            PriorityList slot = expires[index];
+	            slot.add(new ExpireObject(key,now + delay));
+	            System.out.println("add index");
+	        }
+    
+<li>对于2,我们可以使用原来Redis的随机删除策略来实现,也就是每次从过期字典里面「随机」选取16个key,然后计算这些可以是不是过期,用抽样来判断整体过期key的情况。一个难点是:
+	Java的hashMap不支持随机抽取,为了性能不可能把map变成array来临时操作,所以采取一个相对hack的办法:
+	
+
+    利用反射+Unsafe,拿到HashMap里面对应的table(Node[]),然后还是利用unsafe计算出Node的next元素,这样就可以像Redis一样进行遍历了,当然这不是一个好的办法,和JDK具体实现耦合在了一起,只是不得已的办法,最好的办法还是自己重写一个HashMap,不用JDK的那个。
+
+#### <li> 异步删除的策略:
+我们为了支持异步线程辅助一些工作,比如说帮忙删除过期key,帮忙进行扩容等操作,设计了这样的策略:
+		
+```
+从RedisHashMap衍生两种类型,第一个是普通的HashMap,另外一个是支持并发的HashMap
+如果需要异步线程的支持,我们就在主线程里面将普通的Map替换成ConcurrentRedisHashMap
+像这样:
+	    public static void converMapToConcurrent(){
+        if(!RedisMap.holdByAnother()) {
+            RedisConcurrentHashMap<String,RedisObject> cmap = new RedisConcurrentHashMap<>(RedisMap);
+            cmap.incrRef();
+            RedisMap = cmap;
+            //RedisMap.get("1");
+        }
+    }
+
+同时注意到异步线程对于PriorityList的add操作和主线程过期操作可能会有数据竞争,所以我们需要单独为一个PrioirtyList设置一个并发的版本,思路类似上面的Map,具体内容见:「ConcurrentPriorityList.class」
+```
+##### 上面这样做,第一是对原来的RedisMap进行了封装,但是并没有对原有的数据操作,所以无论数据有多少,都是O(1)的操作
+
+##### 第二,所有转换都在主线程里面执行,所以不需要考虑转换过程带来的线程安全的问题
+
+##### 第三,转换完成之后,就可以提交任务,让异步线程也对该RedisHashMap进行操作了,这个时候操作一定是线程安全的
+
+##### 第四,一般这种操作竞争的程度并不高(一共就几个异步线程进行操作)所以性能损失不大,而且每个操作很迅速,所以自己写了一个简单的spin-lock用来进行保护即可,具体内容见`RedisConcurrentHashMap.class`
+
+#### #最后,我们只需要在异步线程结束之后,在主线程将状态转换回来即可,这种情况下只能让主线程去轮训提交的异步任务的future,只要future完成,就执行对应的回调,具体内容见`「ExpireFuture.java」`部分  
+
+此外,还有一些小的优化,这里就不一一赘述了。
