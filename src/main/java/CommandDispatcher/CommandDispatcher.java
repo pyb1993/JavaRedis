@@ -21,7 +21,8 @@ public class CommandDispatcher extends ChannelInboundHandlerAdapter {
     private static ThreadPoolExecutor executor;
     static
     {
-        /****** 初始化整个executor *******/
+        /****** 初始化整个executor 用来异步执行Redis的业务逻辑,目前来看没有必要
+
         BlockingQueue<Runnable> queue = new ArrayBlockingQueue<>(1000);
 
         // 创造线程的工厂类,暂时没有进行任何调整
@@ -45,6 +46,7 @@ public class CommandDispatcher extends ChannelInboundHandlerAdapter {
                 queue,
                 factory,
                 new CallerRunsPolicy());
+         *******/
     }
 
     public static void closeGracefully() {
@@ -60,7 +62,7 @@ public class CommandDispatcher extends ChannelInboundHandlerAdapter {
     @Override
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
         // 客户端走了一个
-        Logger.debug("connection leaves");
+        Logger.debug(ctx.channel() + "connection leaves");
         ctx.close();// 客户端已经主动关闭了
     }
 
@@ -71,7 +73,9 @@ public class CommandDispatcher extends ChannelInboundHandlerAdapter {
             // 用业务线程池处理消息 || 直接在IO线程里面进程处理
             this.handleCommand(ctx, (MessageInput) msg);
 
-       /*     executor.submit(() -> {
+       /*
+        异步执行逻辑,目前没有必要
+        executor.submit(() -> {
                 this.handleCommand(ctx, (MessageInput) msg);
             });*/
         }

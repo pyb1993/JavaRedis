@@ -14,11 +14,12 @@ import java.util.HashMap;
  * **/
 public class RedisObject {
     static int REDIS_INTEGER = 1;
-    static int REDIS_STRING = 1;
-    static int REDIS_LIST = 1;
-    static int REDIS_HASH = 1;
-    static int REDIS_SET = 1;
-    static int REDIS_ZSET = 1;
+    static int REDIS_STRING = 2;
+    static int REDIS_LIST = 3;
+    static int REDIS_HASH = 4;
+    static int REDIS_SET = 5;
+    static int REDIS_ZSET = 6;
+    static int REDIS_HYPERLOGLOG = 7;
     private int type;
     private Object data;
 

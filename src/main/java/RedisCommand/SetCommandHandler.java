@@ -12,11 +12,11 @@ public class SetCommandHandler implements RedisCommandHandler<RedisInputStringPa
     @Override
     public void handle(ChannelHandlerContext ctx, String requestId, RedisInputStringPair message){
         // 执行 set key value 的命令
-        Logger.debug("set recv :" + message.getSecond());
+        Logger.debug(requestId + " " + ctx.channel() + ": set recv :" + message.getSecond());
         RedisDb.set(message.getFirst(),
                 RedisObject.redisStringObject(message.getSecond()));
 
-        ctx.writeAndFlush(new MessageOutput(requestId,"set","set ok " + message.getSecond()));
+        ctx.writeAndFlush(new MessageOutput(requestId,"set",""));
     }
 }
 

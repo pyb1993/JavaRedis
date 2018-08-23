@@ -34,7 +34,10 @@ public class MessageRegister {
                 .register("incr", RedisInputStringPair.class,new SetCommandHandler())
                 .register("get", String.class,new GetCommandHandler())
                 .register("hset", RedisStringList.class, new HsetCommandHandler())
-                .register("hget",RedisInputStringPair.class, new HgetCommandHandler());
+                .register("hget",RedisInputStringPair.class, new HgetCommandHandler())
+                .register("pfadd",RedisStringList.class, new PFaddCommandHandler())
+                .register("pfcount", String.class, new PFCountCommandHandler())
+                .register("expire", RedisInputStringPair.class, new ExpireHandler());
     }
 
 

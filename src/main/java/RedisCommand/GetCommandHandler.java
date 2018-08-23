@@ -17,9 +17,9 @@ public class GetCommandHandler implements RedisCommandHandler<String> {
         // 执行 get key 的命令
         RedisObject ret = RedisDb.get(key);
         if(ret != null) {
-            Logger.debug("get resp " + (String) ret.getData());
+            Logger.debug(requestId + " " + ctx.channel() + ":get resp " + (String) ret.getData());
         }
-        ctx.writeAndFlush(new MessageOutput(requestId, "get", ret == null ? "none" : ret.getData()));
+        ctx.writeAndFlush(new MessageOutput(requestId, "get", ret == null ? "" : ret.getData()));
     }
 }
 
