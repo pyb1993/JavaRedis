@@ -40,7 +40,7 @@ public class RedisObject {
 
 
     // 返回一个RedisObject,参数是HashMap
-    static public RedisObject redisHashObject(HashMap<String,RedisObject> obj){
+    static public RedisObject redisHashObject(RedisDict<String,RedisObject> obj){
         return new RedisObject(REDIS_HASH,obj);
     }
 

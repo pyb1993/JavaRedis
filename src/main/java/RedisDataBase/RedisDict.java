@@ -53,6 +53,7 @@ public class RedisDict<K,T>{
             }
 
             toConcurrent();
+            // 因为只能在主线程执行,所以这里不可能出现状态的变化,这里加锁是为了防止异步线程在执行的时候突然状态改变
             gwriteLock();
 
             // 首先创建当前length两倍大小的capacity的元素
@@ -116,17 +117,17 @@ public class RedisDict<K,T>{
         if(RedisServer.isCurrentThread()){
             safePut(key,val);
         }else{
+            greadLock();
             if(!inRehashProgress()){
                 // 不扩容状态
-                greadLock();
                 safePut(key, val);
-                greadUnLock();
             }else{
                 // 这里处于扩容状态， rehashMap != null
                 // 但是由于没有锁的保护,可能突然变成非扩容状态,rehashMap == NULL
                 // 所以 stopRehash只能在「没有异步线程的」
                 safePut(key,val);
             }
+            greadUnLock();
         }
 
         // 这里有多种case 1 主线程扩容,当前字典可能是「普通状态」／「并发状态」
@@ -182,7 +183,7 @@ public class RedisDict<K,T>{
      * */
     public void remove(K key) {
         map.remove(key);
-        if(inRehashProgress()) {// 1
+        if(inRehashProgress()) {
             greadLock();
             if(inRehashProgress()){
                 rehashMap.remove(key);
@@ -190,7 +191,7 @@ public class RedisDict<K,T>{
             greadUnLock();
         }
 
-        // 和put的情况类似
+        // 和put的情况类似,这里有可能是主线程,那么
         if(RedisServer.isCurrentThread() && needtrim(true)){
             startRehash();
         }

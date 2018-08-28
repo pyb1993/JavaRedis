@@ -104,11 +104,11 @@ public class RedisDb {
     public static void hset(String key, String field, RedisObject val){
         RedisObject h = getIfValid(key);
         if(h == null){
-            HashMap<String,RedisObject> hash = new HashMap<>();
+            RedisDict<String,RedisObject> hash = new RedisDict<>();
             hash.put(field,val);
             RedisMap.put(key,RedisObject.redisHashObject(hash));
         }else{
-            HashMap<String,RedisObject> hash = (HashMap)h.getData();
+            RedisDict<String,RedisObject> hash = (RedisDict)h.getData();
             hash.put(field,val);
         }
     }
@@ -117,7 +117,7 @@ public class RedisDb {
     public static RedisObject hget(String key, String field){
         RedisObject h = getIfValid(key);
         if(h != null){
-           return ((HashMap<String,RedisObject>) h.getData()).get(field);
+           return ((RedisDict<String,RedisObject>) h.getData()).get(field);
         }
         return null;
     }
