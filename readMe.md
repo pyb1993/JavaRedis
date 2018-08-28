@@ -189,3 +189,141 @@ class RedisObject{
 #### #最后,我们只需要在异步线程结束之后,在主线程将状态转换回来即可,这种情况下只能让主线程去轮训提交的异步任务的future,只要future完成,就执行对应的回调,具体内容见`「ExpireFuture.java」`部分  
 
 此外,还有一些小的优化,这里就不一一赘述了。
+----
+#### Version-3
+##### 改动1:  增加了对于渐进式rehash的支持,为了达到这个目的,我重写了RedisHashMap(其实就是把JDK源码抄了一部分过来)
+##### 改动2:  增加了异步线程进行rehash的支持(重点是确保线程安全,使得删除过期,rehash,以及主线程rehash协作运行)
+---
+### 思路设计
+#### <li> 渐进rehash的支持
+		实际上,最开始我使用的是JDK的HashMap,但是存在各种问题,你要在主动rehash的过程中防止hashMap自动扩容,要处理size的线程不安全,还要面对无法高效率的获取随机的值等问题。
+		要绕过JDK的限制非常麻烦,而且关于自动扩容的问题, 非常难以限制,会导致线程安全的问题
+		比如异步线程往新的map添加元素,同时主线程也将新的元素添加到·新的map,如果并发够大,
+		完全可能产生新的map在扩容过程中再次扩容,这个时候导致分段锁失效等情况。
+		
+##### <li> 主线程渐进式rehash的逻辑
+	put: 只往新的map存,但是同时要删除老的map里面可能的key
+	remove: 先删老的map,再删新的map(否则存在线程安全)
+	get: 先查新的map,后查老的map  
+	什么时候执行这个逻辑:
+		分两种情况来讨论,首先考虑扩容,这里把负载因子1作为分界线
+		然后考虑缩容,这里把负载因子0.5作为分界限(缩容的时候还要考虑频率,限定为至少间隔1s)
+		另外对于size比较小的rehash,就直接在主线程执行
+
+		put的代码:
+		 if(RedisServer.isCurrentThread()){
+		            safePut(key,val);
+		        }else{
+		            if(!inRehashProgress()){
+		                // 不扩容状态
+		                greadLock();
+		                safePut(key, val);
+		                greadUnLock();
+		            }else{
+		                // 这里处于扩容状态， rehashMap != null
+		                // 但是由于没有锁的保护,可能突然变成非扩容状态,rehashMap == NULL
+		                // 所以 stopRehash只能在「没有异步线程的」
+		                safePut(key,val);
+		            }
+		        }
+		
+		        // 这里有多种case 1 主线程扩容,当前字典可能是「普通状态」／「并发状态」
+        // 2 异步线程扩容,且当前字典已经是扩容的状态
+        // 3 异步线程扩容,当前字典一定是并发状态
+        // 我们只在主线程切换状态,所以其它两个线程我们不执行
+        if(RedisServer.isCurrentThread() && needGrowth(true)){
+            startRehash(); // case2会直接被startRehash过滤
+        }
+
+##### <li> 异步线程的逻辑:
+	遍历所有老的slot,将这些slot添加到新的map上面
+	关键点: 每一个slot都需要加锁来保证正确性
+	
+	 EasyLock lock = lockArr[index & (lockNum - 1)];
+        lock.lock(); // 需要lock住固定的index
+        Node node = map.table[index];
+        int nodeNum = 0;
+        while (node != null){
+            // 进行rehash
+            ++nodeNum;
+            rehashMap.put(node.getKey(),node.getValue());// 自动加锁
+            node = node.next;
+        }
+        map.table[index] = null;//所有的都设置为null,这样就成功将map本身给解决了,map本身的size也应该修改
+        tmpSize.addAndGet(-nodeNum);
+        lock.unlock();
+        
+##### <li> 线程安全和性能的讨论
+		  首先我们引入了一个新的中间层 `RedisDict`
+		  这个东西负责 rehash操作和 普通RedisHashMap到RedisConcurrentHashMap的转换,这样对于使用RedisDict的操作就完全屏蔽了。
+		  但是,对于rehash操作,由于存在突然变成rehash状态和突然从rehash状态结束两种变化,那么这个线程安全是必须要保证的。
+
+---
+如果直接加锁,那么就会导致性能很差,因为处于并发状态和rehash状态的时间很少,如果每次检查是否处于rehash状态的时候都要加锁, 那么性能未免也太低了。一个做法是「double check」的思路,回想单例模式里面的常见pattern实现,可以避免大部分情况下进行加锁. 但是这里存在一个问题,采取这种模式必须保证状态的变化是「**单向**」的,比如说单例里面状态不能「从有到无」。但是rehash的变化是双向的状态,那么怎么做?
+
+----
+	两种策略: 1 延迟stopRehash的操作,所有的stopRehash操作只在没有异步线程持有当前RedisDict的时候才执行,这样就避免了上面说的问题。
+				2 先检查是不是在主线程执行的这个操作,如果在主线程就不需要对检查 rehash状态加锁,因为所有对状态变化只发生在主线程。
+	再看一次put的代码,这里采取策略2:
+	
+	 void safePut(K key, T val){
+	        if(inRehashProgress()){
+	            // 扩容状态
+	            rehashMap.put(key,val);
+	            map.remove(key);// 这一步是必要的
+	        }else {
+	            // 非扩容状态
+	            map.put(key,val);
+	        }
+	    }
+
+	if(RedisServer.isCurrentThread()){
+		            safePut(key,val);
+		        }else{
+		           greadLock();
+		            if(!inRehashProgress()){
+		                // 不扩容状态
+		                safePut(key, val);
+		             }else{
+		                // 这里处于扩容状态， rehashMap != null
+		                // 但是由于没有锁的保护,可能突然变成非扩容状态,rehashMap == NULL
+		                // 所以 stopRehash只能在「没有异步线程的」
+		                safePut(key,val);
+		            }
+		             greadUnLock();
+		        }
+分析:首先判断是不是在主线程,如果在主线程,那么就代表不用担心状态突然发生变化,因为这是因为所有的状态变化都在「主线程执行」,所以不存在其它线程的干扰。
+	如果不是在主线程,那么就需要加一个读锁,这是为了防止状态改变.
+
+----
+来看看remove,这里采取来策略1来实现(其实可以把策略2也加入进来,但是没有必要搞那么麻烦,因为本来都是小概率情况)	
+
+	 public void remove(K key) {
+        map.remove(key);
+        if(inRehashProgress()) {// 1
+            greadLock();
+            if(inRehashProgress()){
+                rehashMap.remove(key);
+            }
+            greadUnLock();
+        }
+
+        if(RedisServer.isCurrentThread() && needtrim(true)){
+            startRehash();
+        }
+    }    
+ ----
+#### <li>  锁的实现
+这里有两种锁,一种是自旋锁,一种是「读写自旋锁」,后者是为了保护「rehash状态」的,在改变rehash状态的时候要加上「writeLock」,检查的时候加上「readLock」.
+因为这里的临界操作都非常短,所以全部用自旋的形式实现,而且不考虑公平性(一般0.1ms都不要就执行完了,所以尽可能的高效率)
+
+---
+
+#### <li> 状态改变的条件
+	由于map具有这样几个属性,「是否并发」,「是否正在扩容」,「被几个线程持有」,其中「被其它线程持有」一定意味这「处于并发状态」
+	所以停止rehash的时候,需要考虑一些情况,比如
+	如果被其它线程持有着(并发状态),那么不能立刻结束rehash状态,这本来是通过「读写自旋锁」来进行保证的, 但是我们可以再提高一点性能,如果该Dict被其它线程持有,那么会延后执行该Dict的stopRehash,这样就可以先执行其它任务而不是「自旋」
+	
+	在开始rehash的时候,也要根据「是否已经处于并发状态」,「是否可以直接执行rehash」
+	
+	死锁,注意到获取size的时候同样存在线程安全的问题,但是size加的是「readLock」,如果调用的上层恰好使用「writeLock」,就会导致死锁。所以还需要一个无锁版本的size
