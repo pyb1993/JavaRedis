@@ -3,9 +3,10 @@ package RedisServer;
 import CommandDispatcher.CommandDispatcher;
 import MessageRegister.MessageRegister;
 import RedisCommand.MessageEncoder;
-import RedisFuture.ExpireFuture;
+import RedisFuture.RedisRunnable;
 import RedisDataBase.RedisDb;
 import RedisDataBase.RedisTimerWheel;
+import RedisFuture.RedisFuture;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
@@ -14,6 +15,7 @@ import io.netty.channel.socket.SocketChannel;
 import io.netty.handler.timeout.IdleStateHandler;
 import Common.*;
 import RedisCommand.*;
+import io.netty.util.concurrent.EventExecutor;
 
 import java.util.LinkedList;
 import java.util.concurrent.*;
@@ -22,9 +24,13 @@ import java.util.concurrent.*;
 public class RedisServer {
     private String ip;
     private int port;
-    private static EventLoopGroup acceptGroup = new NioEventLoopGroup(1);
-    private static LinkedList<ExpireFuture> queue = new LinkedList<>(); // 用来处理定时任务结果的
+    // todo
+    public static EventLoopGroup acceptGroup = new NioEventLoopGroup(1);
+    private static LinkedList<RedisFuture> queue = new LinkedList<>(); // 用来处理定时任务结果的
     static public final ScheduledExecutorService ExpireHelper = Executors.newScheduledThreadPool(1);// 用来在处理大量过期事件时候进行帮助的线程
+    static Thread mThread; // 因为只有在这里才是被
+
+
 
     /** 如果需要添加自己的命令,只需要继承原来的RedisServer
      * 然后在构造函数里面调用 MessageRegister.registerDefault().register(xxx).register(yyy) 就好**/
@@ -34,6 +40,7 @@ public class RedisServer {
 
         //rehashThread = Executors.newCachedThreadPool();// 用来在rehash的时候提交的
         MessageRegister.registerDefault();// 注册默认的那些命令比如set get incr
+
     }
 
     public void start() throws Exception{
@@ -62,17 +69,14 @@ public class RedisServer {
 
             ChannelFuture f = b.bind(this.ip,this.port).sync();
             Logger.log(RedisServer.class.getName() + "started and listen on " + f.channel().localAddress());
+
+            acceptGroup.submit(()->{mThread = Thread.currentThread();});// 获取EventLoop的thread
             // 10ms执行一次,用来更新系统时间
             acceptGroup.scheduleAtFixedRate(()->RedisTimerWheel.updateSystemTime(),0,10,TimeUnit.MILLISECONDS);
             // 每250ms执行一次对过期数据的删除
-            acceptGroup.scheduleAtFixedRate(()->{
-                    try{
-                        RedisDb.processExpires();
-                    }catch (Exception e){
-                        e.printStackTrace();
-                    }},1,250,TimeUnit.MILLISECONDS);
-            // 每25ms执行一次,用来执行 移除过期key 任务完成的回调
-            acceptGroup.scheduleAtFixedRate(()->RedisServer.onComplete(),2,25,TimeUnit.MILLISECONDS);
+            acceptGroup.scheduleAtFixedRate(new RedisRunnable(()->RedisDb.processExpires()),1,250,TimeUnit.MILLISECONDS);
+            // 每xxms执行一次,用来执行 移除过期key 任务完成的回调
+            acceptGroup.scheduleAtFixedRate(new RedisRunnable(()->RedisServer.onComplete()),2,137,TimeUnit.MILLISECONDS);
 
             f.channel().closeFuture().sync();
             Logger.log("close done");
@@ -81,15 +85,21 @@ public class RedisServer {
         }
     }
 
+    public static boolean isCurrentThread(){
+        return Thread.currentThread() == mThread;
+    }
 
-    public static void addFuture(ExpireFuture future){
+    public static void addFuture(RedisFuture future){
         queue.add(future);
     }
 
     // 用来检查所有的回调有没有执行完全
-    public static void onComplete(){
-        int size = 50;// 每次处理最多50个任务的回调,目前任务的回调都很简单,所以应该瞬间执行完
-        ExpireFuture ef;
+    // 每次处理最多25个任务的回调,由于回调的任务一般都相对比较简单,所以应该很快就执行完了
+    // 之所以设置25,是因为有些任务存在锁的竞争,如果暂时不能获取,就先不获取
+    public static void onComplete() {
+        int size = 15;
+        RedisFuture ef;
+        System.out.println("undone task num  " + queue.size());
         while (size-- > 0 && (ef = queue.poll())!= null){
             if(ef.isDone()){
                 ef.onComplete();
@@ -97,7 +107,6 @@ public class RedisServer {
                 queue.add(ef);
             }
         }
-
     }
 }
 

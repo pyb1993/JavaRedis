@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="module_netty_demo_1" default="compile.module.netty_demo_1">
+  <dirname property="module.netty_demo_1.basedir" file="${ant.file.module_netty_demo_1}"/>
+  
+  <property name="module.jdk.home.netty_demo_1" value="${project.jdk.home}"/>
+  <property name="module.jdk.bin.netty_demo_1" value="${project.jdk.bin}"/>
+  <property name="module.jdk.classpath.netty_demo_1" value="${project.jdk.classpath}"/>
+  
+  <property name="compiler.args.netty_demo_1" value="-encoding UTF-8 -source 10 -target 1.5 ${compiler.args}"/>
+  
+  <property name="netty_demo_1.output.dir" value="${module.netty_demo_1.basedir}/target/classes"/>
+  <property name="netty_demo_1.testoutput.dir" value="${module.netty_demo_1.basedir}/target/test-classes"/>
+  
+  <path id="netty_demo_1.module.bootclasspath">
+    <!-- Paths to be included in compilation bootclasspath -->
+  </path>
+  
+  <path id="netty_demo_1.module.production.classpath">
+    <path refid="${module.jdk.classpath.netty_demo_1}"/>
+    <path refid="library.io.netty:netty-all:4.1.25.final.classpath"/>
+    <path refid="library.maven:_junit:junit:4.12.classpath"/>
+    <path refid="library.maven:_org.hamcrest:hamcrest-core:1.3.classpath"/>
+    <path refid="library.maven:_com.alibaba:fastjson:1.2.39.classpath"/>
+  </path>
+  
+  <path id="netty_demo_1.runtime.production.module.classpath">
+    <pathelement location="${netty_demo_1.output.dir}"/>
+    <path refid="library.io.netty:netty-all:4.1.25.final.classpath"/>
+    <path refid="library.maven:_junit:junit:4.12.classpath"/>
+    <path refid="library.maven:_org.hamcrest:hamcrest-core:1.3.classpath"/>
+    <path refid="library.maven:_com.alibaba:fastjson:1.2.39.classpath"/>
+  </path>
+  
+  <path id="netty_demo_1.module.classpath">
+    <path refid="${module.jdk.classpath.netty_demo_1}"/>
+    <pathelement location="${netty_demo_1.output.dir}"/>
+    <path refid="library.io.netty:netty-all:4.1.25.final.classpath"/>
+    <path refid="library.maven:_junit:junit:4.12.classpath"/>
+    <path refid="library.maven:_org.hamcrest:hamcrest-core:1.3.classpath"/>
+    <path refid="library.maven:_com.alibaba:fastjson:1.2.39.classpath"/>
+  </path>
+  
+  <path id="netty_demo_1.runtime.module.classpath">
+    <pathelement location="${netty_demo_1.testoutput.dir}"/>
+    <pathelement location="${netty_demo_1.output.dir}"/>
+    <path refid="library.io.netty:netty-all:4.1.25.final.classpath"/>
+    <path refid="library.maven:_junit:junit:4.12.classpath"/>
+    <path refid="library.maven:_org.hamcrest:hamcrest-core:1.3.classpath"/>
+    <path refid="library.maven:_com.alibaba:fastjson:1.2.39.classpath"/>
+  </path>
+  
+  
+  <patternset id="excluded.from.module.netty_demo_1">
+    <patternset refid="ignored.files"/>
+  </patternset>
+  
+  <patternset id="excluded.from.compilation.netty_demo_1">
+    <patternset refid="excluded.from.module.netty_demo_1"/>
+  </patternset>
+  
+  <path id="netty_demo_1.module.sourcepath">
+    <dirset dir="${module.netty_demo_1.basedir}">
+      <include name="src/main/java"/>
+      <include name="src/main/resources"/>
+    </dirset>
+  </path>
+  
+  <path id="netty_demo_1.module.test.sourcepath">
+    <dirset dir="${module.netty_demo_1.basedir}">
+      <include name="src/test/java"/>
+    </dirset>
+  </path>
+  
+  
+  <target name="compile.module.netty_demo_1" depends="compile.module.netty_demo_1.production,compile.module.netty_demo_1.tests" description="Compile module Netty_Demo_1"/>
+  
+  <target name="compile.module.netty_demo_1.production" depends="register.custom.compilers" description="Compile module Netty_Demo_1; production classes">
+    <mkdir dir="${netty_demo_1.output.dir}"/>
+    <javac2 destdir="${netty_demo_1.output.dir}" debug="${compiler.debug}" nowarn="${compiler.generate.no.warnings}" memorymaximumsize="${compiler.max.memory}" fork="true" executable="${module.jdk.bin.netty_demo_1}/javac">
+      <compilerarg line="${compiler.args.netty_demo_1}"/>
+      <bootclasspath refid="netty_demo_1.module.bootclasspath"/>
+      <classpath refid="netty_demo_1.module.production.classpath"/>
+      <src refid="netty_demo_1.module.sourcepath"/>
+      <patternset refid="excluded.from.compilation.netty_demo_1"/>
+    </javac2>
+    
+    <copy todir="${netty_demo_1.output.dir}">
+      <fileset dir="${module.netty_demo_1.basedir}/src/main/java">
+        <patternset refid="compiler.resources"/>
+        <type type="file"/>
+      </fileset>
+      <fileset dir="${module.netty_demo_1.basedir}/src/main/resources">
+        <patternset refid="compiler.resources"/>
+        <type type="file"/>
+      </fileset>
+    </copy>
+  </target>
+  
+  <target name="compile.module.netty_demo_1.tests" depends="register.custom.compilers,compile.module.netty_demo_1.production" description="compile module Netty_Demo_1; test classes" unless="skip.tests">
+    <mkdir dir="${netty_demo_1.testoutput.dir}"/>
+    <javac2 destdir="${netty_demo_1.testoutput.dir}" debug="${compiler.debug}" nowarn="${compiler.generate.no.warnings}" memorymaximumsize="${compiler.max.memory}" fork="true" executable="${module.jdk.bin.netty_demo_1}/javac">
+      <compilerarg line="${compiler.args.netty_demo_1}"/>
+      <bootclasspath refid="netty_demo_1.module.bootclasspath"/>
+      <classpath refid="netty_demo_1.module.classpath"/>
+      <src refid="netty_demo_1.module.test.sourcepath"/>
+      <patternset refid="excluded.from.compilation.netty_demo_1"/>
+    </javac2>
+    
+    <copy todir="${netty_demo_1.testoutput.dir}">
+      <fileset dir="${module.netty_demo_1.basedir}/src/test/java">
+        <patternset refid="compiler.resources"/>
+        <type type="file"/>
+      </fileset>
+    </copy>
+  </target>
+  
+  <target name="clean.module.netty_demo_1" description="cleanup module">
+    <delete dir="${netty_demo_1.output.dir}"/>
+    <delete dir="${netty_demo_1.testoutput.dir}"/>
+  </target>
+</project>

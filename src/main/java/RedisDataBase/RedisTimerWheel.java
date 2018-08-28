@@ -44,7 +44,7 @@ import java.util.concurrent.TimeUnit;
  *
  * **/
 public class RedisTimerWheel {
-    static int slotNum = 1;
+    static int slotNum = 1024;
     static PriorityList[] expires;
     static long lastProcessed;
     static long systemTime;
@@ -69,7 +69,6 @@ public class RedisTimerWheel {
             int index = (int)((now + delay ) & (slotNum - 1));// 计算应该放到的index
             PriorityList slot = expires[index];
             slot.add(new ExpireObject(key,now + delay));
-            System.out.println("add index");
         }
     }
 
@@ -91,6 +90,7 @@ public class RedisTimerWheel {
         int curIndex = (int)(now  & (slotNum - 1));
         int num = 0;
         PriorityList slot = expires[curIndex];
+        System.out.println("prcess exp at"+ curIndex +" expire size:"+ RedisDb.ExpiresDict.size() + " map size :" + RedisDb.RedisMap.size() + "concurrent:" + RedisDb.ExpiresDict.inConcurrent());
         if(!slot.isSubmitted()){
             ExpireObject obj;
             while((obj = slot.poll()) != null){
@@ -100,12 +100,13 @@ public class RedisTimerWheel {
                 }
 
                 // 下面开始进行删除操作,经测试大约1ms可以处理800-1000左右的过期元素
+                // 如果正在进行rehash也不会进行异步任务
                 num++;
                 RedisDb.del(obj.getKey());
                 if((num & 255) == 0){
                     updateSystemTime();
                     System.out.println("index:" + curIndex + " num:" + num + " used time " + (getSystemTimeMillSeconds() - lastProcessed));
-                    if((getSystemTimeMillSeconds() - lastProcessed) > 5 && slot.size() > 255 && !slot.isSubmitted()){
+                    if((getSystemTimeMillSeconds() - lastProcessed) > 5 && slot.size() > 255 && !slot.isSubmitted() /*&& !RedisDb.RedisMap.inRehashProgress()*/){
                         // 超过5ms,且剩余的元素也很多,并且没有提交过任务那么直接提交一个异步任务
                         System.out.println("submit task");
                         submitTaskToHelper(curIndex,now);// 这会导致slot的状态发生变化
@@ -128,16 +129,16 @@ public class RedisTimerWheel {
          * 随机算法的思路:
          *      这个并不是很好操作,因为肯定不能直接转换成Array来操作,这会导致过多的复制
          *      所以利用Unsafe + 反射
-         *
-         * */
-        RedisHashMap ExpiresDict = RedisDb.ExpiresDict;
-        RedisHashMap RedisMap = RedisDb.RedisMap;
-        if(!slot.isSubmitted() && !ExpiresDict.holdByAnother()){
+         */
+
+        RedisDict ExpiresDict = RedisDb.ExpiresDict;
+        // 这里需要加锁,否则没有办法进行保护
+        if(!slot.isSubmitted()){
             int round = 16;
 
             int size = ExpiresDict.size();
-            int slots = ExpiresDict.unsafeTable.length;
-            if(size < 100 || ((slots / size) > 10)){
+            int slots = ExpiresDict.length();// 如果是rehash情况下会返回两者length的和
+            if(size < 256 || ((slots / size) > 50)){
                 return; // 数量太少,不更新
             }
 
@@ -146,12 +147,11 @@ public class RedisTimerWheel {
             while (true){
                 int expired = 0;
                 for(int i = 0; i < round; ++i) {
-
-                    Map.Entry e = ExpiresDict.random();
+                    Node e = ExpiresDict.random();
                     if (e != null){
                         Long expireTime = (Long) e.getValue();
                         if(expireTime > getSystemSeconds()){
-                            RedisDb.del((String) e.getKey());
+                            RedisDb.del((String) e.getKey());// 确定是过期的,所以直接删除,不使用removeIfExpired
                             expired++;
                         }
                     }
@@ -171,30 +171,25 @@ public class RedisTimerWheel {
                 }
             }
         }
-
-       // System.out.println("used time" + (getSystemTimeMillSeconds() - lastProcessed));
     }
 
     // 超过10ms,且剩余的元素也很多,那么直接提交一个异步任务
-    // todo 关键是需要把指定slot替换成Concurrent的状态
     // 和expires竞争的实际上只有enqueue
     // 稍微延迟一下再执行,避免这个时候和enqueu产生大量竞争
     private void submitTaskToHelper(int curIndex,long now){
-        RedisDb.converMapToConcurrent();
-        RedisDb.convertExpiredToConcurrent();
+        RedisDb.RedisMap.toConcurrent();
+        RedisDb.ExpiresDict.toConcurrent();
         convertTimerWheelToConcurrent(curIndex);
         PriorityList slot = expires[curIndex];
-
         Future expireFuture = RedisServer.ExpireHelper.schedule(()->{
             ExpireObject o;
-            // 注意需要将下面对地方锁住,否则会导致大量对
             while((o = slot.poll()) != null){
                 if(o.getExpireTime() > now){
                     slot.add(o);// 重新加入
                     break; // 当前时间slot里面没有需要删除的元素
                 }
                 // 目的是确保线程安全
-                RedisDb.removeIfExipired(o.getKey());
+                RedisDb.removeIfExpired(o.getKey());
             }
         },
           100 + new Random().nextInt(500),
@@ -209,7 +204,7 @@ public class RedisTimerWheel {
         expires[index] = new ConcurrentPriorityList(old);
     }
 
-    /*转换为正常
+    /*转换为正常的PriorityList
     * 这里只可能有一个位置引用
     * */
     static public void convertTimerWheelToNormal(int index){

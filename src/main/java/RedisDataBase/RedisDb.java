@@ -1,5 +1,7 @@
 package RedisDataBase;
 
+import RedisFuture.RedisFuture;
+import RedisServer.RedisServer;
 import sun.misc.Unsafe;
 
 import java.lang.reflect.Field;
@@ -10,7 +12,9 @@ import java.util.Random;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 
 /**
@@ -36,8 +40,10 @@ import java.util.concurrent.locks.ReentrantLock;
  *
  * */
 public class RedisDb {
-    public static RedisHashMap<String,RedisObject> RedisMap = new RedisHashMap<>();
-    public static RedisHashMap<String,Long> ExpiresDict = new RedisHashMap<>();// 用来存储所有过期key的过期时间,方便快速查找/判断/修改
+    public static RedisDict<String,RedisObject> RedisMap = new RedisDict<>();
+    public static RedisDict<String,Long> ExpiresDict = new RedisDict<>();// 用来存储所有过期key的过期时间,方便快速查找/判断/修改
+
+
     static final RedisObject[] RedisIntegerPool = new RedisObject[10000];
     static final RedisTimerWheel ExpiresTimer = new RedisTimerWheel();
 
@@ -47,13 +53,12 @@ public class RedisDb {
         for(int i = 0; i < 10000; i++){
             RedisIntegerPool[i] = new RedisObject(RedisObject.REDIS_INTEGER,i);
         }
-
-        // 放一个元素
-
     }
 
     // getString
-    public static void set(String key,RedisObject val){
+    // todo 需要写日志
+    public static void set(String key,RedisObject val)
+    {
         RedisMap.put(key,val);
     }
 
@@ -71,14 +76,14 @@ public class RedisDb {
 
     // 设置超时
     public static void expire(String key,int expireDelay){
-        if(RedisMap.get(key) != null) {
+        if(getIfValid(key) != null) {
             ExpiresTimer.enqueue(key, expireDelay);
             ExpiresDict.put(key, RedisTimerWheel.getSystemSeconds() + expireDelay);// 重新设置过期key
         }
     }
 
     // 只有过期的key才会被移除
-    public static void removeIfExipired(String key){
+    public static void removeIfExpired(String key){
         if(isExpired(key)){
             del(key);
         }
@@ -89,47 +94,11 @@ public class RedisDb {
         return (time != null) && time < RedisTimerWheel.getSystemSeconds();
     }
 
-    /*将普通的RedisMap进行切换,转换到能够支持并发的情况 */
-    public static void converMapToConcurrent(){
-        if(!RedisMap.holdByAnother()) {
-            RedisConcurrentHashMap<String,RedisObject> cmap = new RedisConcurrentHashMap<>(RedisMap);
-            cmap.incrRef();
-            RedisMap = cmap;
-            //RedisMap.get("1");
-        }
-    }
-
-    /*将普通的ExpiresDict进行切换,转换到能够支持并发的情况 */
-    public static void convertExpiredToConcurrent(){
-        if(!ExpiresDict.holdByAnother()) {
-            RedisConcurrentHashMap<String,Long> cmap = new RedisConcurrentHashMap<>(ExpiresDict);
-            cmap.incrRef();
-            ExpiresDict = cmap;
-        }
-    }
-
-    /* 只有没有引用了才会将map切换 */
-    public static void convertMaptoNormal(){
-        RedisMap.decrRef();
-        if(!RedisMap.holdByAnother()){
-            RedisMap = ((RedisConcurrentHashMap<String, RedisObject>)RedisMap).getMap();
-        }
-    }
-
-    /*只有没有引用的情况下才会把Expires切换*/
-    public static void convertExpiresToNormal(){
-        ExpiresDict.decrRef();
-        if(!ExpiresDict.holdByAnother()){
-            ExpiresDict = ((RedisConcurrentHashMap<String, Long>)ExpiresDict).getMap();
-        }
-    }
 
     // 清理所有过期的元素
     public static void processExpires(){
         ExpiresTimer.processExpires();
     }
-
-
 
     // 模仿redis hset
     public static void hset(String key, String field, RedisObject val){
@@ -181,6 +150,15 @@ public class RedisDb {
 
     /***private module***/
     // 检查是否过期,过期则删除
+    /*
+    * 线程不安全导致的问题:
+    *   0 已经在isExpired里面
+    *   1 isExpired返回false
+    *   2 接下来直接返回数据
+    *   所以根源就是expired字典出现了线程不安全的问题
+    *
+    *
+    * */
     private static RedisObject getIfValid(String key){
         if(isExpired(key)){
             del(key);
@@ -191,185 +169,5 @@ public class RedisDb {
 }
 
 
-// 用来处理rehash情况
-class RedisHashMap<K,T> extends HashMap<K,T>{
-    AtomicInteger refCount;
-    Unsafe unsafe;
-    Object[] unsafeTable;
-    long nextOffset;
-    long tableOffset;
-    Random rand = new Random();
 
-
-    public RedisHashMap(){
-        super(1);
-        super.put(null,null);
-        refCount = new AtomicInteger(0);
-        try{
-            // 通过反射获得对应的Unsafe对象
-            Field theUnsafeInstance = Unsafe.class.getDeclaredField("theUnsafe");
-            theUnsafeInstance.setAccessible(true);
-            unsafe = (Unsafe) theUnsafeInstance.get(Unsafe.class);
-
-
-            // 获取hashMap内部的Table
-            tableOffset = unsafe.objectFieldOffset(HashMap.class.getDeclaredField("table"));
-            unsafeTable = (Object[]) unsafe.getObject(this,tableOffset);
-            nextOffset =  unsafe.objectFieldOffset(unsafeTable.getClass().getComponentType().getDeclaredField("next"));//获取next的offset
-            super.remove(null);
-        }catch (Exception e){
-            e.printStackTrace();
-        }
-    }
-
-    /* 为了使用多态 */
-    public void remove(String key){
-        super.remove(key);
-    }
-    public T get(Object key){return super.get(key);}
-    public T put(K key, T val){return super.put(key,val);}
-    public boolean holdByAnother(){
-        return refCount.get() > 0;
-    }
-
-    public void incrRef(){
-    }
-
-    public void decrRef(){
-    }
-
-
-
-    // 首先随机获取一个Entry,这个随机不是真随机,是假随机
-    // 首先获取一个Node
-    // 接下来有一半的几率直接返回该Node,然后0.125概率往前走1-4步
-    public Entry random(){
-        unsafeTable = (Object[]) unsafe.getObject(this,tableOffset);
-        int len = unsafeTable.length;
-        Entry e;
-        int t = 0;
-        do {
-            t++;
-            int index = rand.nextInt(len);
-            e = (Entry) unsafeTable[index];
-        }while (t< 25 && e == null);
-
-        int step = rand.nextInt(8);
-        if(e == null || step < 4){
-            return  e;
-        }
-
-        // 那么接下来走 1步或者2步
-        Entry next = e;
-        step -= 3;
-        while (step-- > 0 && (next = getNext(e)) != null){
-            e = next;
-        }
-        return e;
-    }
-
-    // 获取该Entry的下一个node
-    // 暂时不检查 entry == null
-    private Entry getNext(Entry entry){
-        return (Entry) unsafe.getObject(entry,nextOffset);
-    }
-
-
-}
-
-/** 一个非常简单的自旋锁 **/
-class EasyLock {
-    AtomicBoolean lc;
-
-    public EasyLock(){
-        lc = new AtomicBoolean();
-    }
-
-    public void lock(){
-        int num = 1;
-        while ((lc.get() == false) && lc.compareAndSet(false, true)) {
-            num++;
-            if(num % 10 == 0){
-                Thread.yield();
-            }
-        }
-    }
-
-    public void unlock(){
-        int num = 1;
-        while ((lc.get() == true) && lc.compareAndSet(true,false)){
-            num++;
-            if(num % 10 == 0){
-                Thread.yield();
-            }
-        }
-    }
-}
-/**
- * 支持并发的HashMap
- * 扩容有两种:
- *
- *
- *
- * **/
-class RedisConcurrentHashMap<K,T> extends RedisHashMap<K,T>{
-    /*下面是成员变量*/
-    EasyLock[] lockArr = new EasyLock[256];// 构造的并发锁
-    RedisHashMap<K,T> map;
-
-    public RedisConcurrentHashMap(RedisHashMap map){
-        this.map = map;
-        for(int i = 0; i < 256; i++){
-            lockArr[i] = new EasyLock();
-        }
-    }
-
-    public RedisHashMap<K,T> getMap(){
-        return map;
-    }
-
-    public void incrRef(){
-        refCount.incrementAndGet();
-    }
-
-    public void decrRef(){
-        refCount.decrementAndGet();
-    }
-
-    public void remove(String key){
-        lock(key);
-        map.remove(key);
-        unlock(key);
-    }
-
-
-    public T get(Object key){
-        lock(key);
-        T ret = map.get(key);
-        unlock(key);
-        return ret;
-    }
-
-    public T put(K key,T val){
-        lock(key);
-        T old = map.put(key,val);
-        unlock(key);
-        return old;
-    }
-
-    public void lock(Object key){
-        getLock(key).lock();
-    }
-
-    public void unlock(Object key){
-        getLock(key).unlock();
-    }
-
-    private EasyLock getLock(Object key){
-        int h;
-        h = (key == null) ? 0 : (h = key.hashCode()) ^ (h >>> 16);
-        return lockArr[h & 255];
-    }
-
-}
 

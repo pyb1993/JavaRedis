@@ -12,8 +12,8 @@ import java.util.concurrent.Future;
 
 
 
-public class ExpireFuture {
-    Future future;// 持有真正future的引用
+public class ExpireFuture implements RedisFuture{
+    public Future future;// 持有真正future的引用
     int curIndex; // 持有的index
     PriorityList[] expires;// 持有的hashMap
 
@@ -23,12 +23,13 @@ public class ExpireFuture {
         this.future = future;
     }
 
+    // 注意到,toNormal必须要保证线程安全
     public void onComplete(){
         try{
-            RedisDb.convertExpiresToNormal();
-            RedisDb.convertMaptoNormal();
+            RedisDb.RedisMap.toNormal();
+            RedisDb.ExpiresDict.toNormal();
             RedisTimerWheel.convertTimerWheelToNormal(curIndex);
-            System.out.println("done");
+            System.out.println("done ");
         } catch (Exception e) {
             Logger.debug(e.getStackTrace().toString());
         }
@@ -37,4 +38,6 @@ public class ExpireFuture {
     public boolean isDone(){
         return future.isDone();
     }
+    public void get() throws Exception {future.get();}
+
 }
