@@ -178,7 +178,6 @@ public class RedisConcurrentHashMap<K,T> extends RedisHashMap<K,T>{
         return tmpSize.get();
     }
 
-
     public int length(){
         return map.length();
     }

@@ -64,11 +64,20 @@ class RedisHashMap<K,V>  {
         table = new Node[tableSizeFor(initialSize)];
     }
 
-    /* 为了使用多态 */
+    /* 为了使用多态
+     * todo 这里需要使用对象池将原来的对象进行归还
+     * todo if InstanceOf PoolObject,那么就要归还
+     * todo 连Entry都归还掉
+     */
     public V remove(Object key) {
         Node<K,V> e;
-        return (e = removeNode(hash(key), key, null, false)) == null ?
+        V ret = (e = removeNode(hash(key), key, null, false)) == null ?
                 null : e.value;
+
+        if(e.value instanceof AbstractPooledObject){
+            ((AbstractPooledObject) e.value).release();
+        }
+        return ret;
     }
 
     final Node<K,V> removeNode(int hash, Object key, Object value, boolean matchValue) {
@@ -323,7 +332,6 @@ class RedisHashMap<K,V>  {
     Node<K,V> newNode(int hash, K key, V value, Node<K,V> next) {
         return new Node<>(hash, key, value, next);
     }
-
 
 }
 

@@ -8,7 +8,13 @@ import RedisDataBase.RedisDb;
 import RedisDataBase.RedisTimerWheel;
 import RedisFuture.RedisFuture;
 import io.netty.bootstrap.ServerBootstrap;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.SlicedByteBuf;
+import io.netty.buffer.UnpooledHeapByteBuf;
 import io.netty.channel.*;
+import io.netty.channel.epoll.EpollChannelOption;
+import io.netty.channel.nio.AbstractNioByteChannel;
+import io.netty.channel.nio.NioEventLoop;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.channel.socket.SocketChannel;
@@ -24,13 +30,10 @@ import java.util.concurrent.*;
 public class RedisServer {
     private String ip;
     private int port;
-    // todo
     public static EventLoopGroup acceptGroup = new NioEventLoopGroup(1);
     private static LinkedList<RedisFuture> queue = new LinkedList<>(); // 用来处理定时任务结果的
     static public final ScheduledExecutorService ExpireHelper = Executors.newScheduledThreadPool(1);// 用来在处理大量过期事件时候进行帮助的线程
-    static Thread mThread; // 因为只有在这里才是被
-
-
+    static Thread mThread;
 
     /** 如果需要添加自己的命令,只需要继承原来的RedisServer
      * 然后在构造函数里面调用 MessageRegister.registerDefault().register(xxx).register(yyy) 就好**/
@@ -43,6 +46,7 @@ public class RedisServer {
 
     }
 
+    // todo IdleStateHandler是不会自动关闭的,需要自己实现心跳机制
     public void start() throws Exception{
         try{
             ServerBootstrap b = new ServerBootstrap();// 接受链接一个group,IO一个group
@@ -54,12 +58,12 @@ public class RedisServer {
                         protected void initChannel(SocketChannel ch) throws Exception {
                             ch.pipeline()
                                     .addLast(new IdleStateHandler(60,60,180))
+                                    .addLast(new outHandler())
                                     .addLast(new MessageEncoder());
 
                             ch.pipeline()
                                     .addLast(new MessageDecoder())
                                     .addLast(new CommandDispatcher());
-
                         }});
 
             b.option(ChannelOption.SO_BACKLOG, 8192)  // socket接受队列大小
@@ -68,9 +72,9 @@ public class RedisServer {
                     .childOption(ChannelOption.SO_KEEPALIVE, true); // 长时间没动静的链接自动关闭
 
             ChannelFuture f = b.bind(this.ip,this.port).sync();
-            Logger.log(RedisServer.class.getName() + "started and listen on " + f.channel().localAddress());
+            Logger.log(RedisServer.class.getName() + "start and listen on " + f.channel().localAddress());
 
-            acceptGroup.submit(()->{mThread = Thread.currentThread();});// 获取EventLoop的thread
+            acceptGroup.submit(()->{mThread = Thread.currentThread();}).sync();// 获取EventLoop的thread
             // 10ms执行一次,用来更新系统时间
             acceptGroup.scheduleAtFixedRate(()->RedisTimerWheel.updateSystemTime(),0,10,TimeUnit.MILLISECONDS);
             // 每250ms执行一次对过期数据的删除
@@ -86,6 +90,7 @@ public class RedisServer {
     }
 
     public static boolean isCurrentThread(){
+        assert mThread != null;
         return Thread.currentThread() == mThread;
     }
 
@@ -99,7 +104,6 @@ public class RedisServer {
     public static void onComplete() {
         int size = 15;
         RedisFuture ef;
-        System.out.println("undone task num  " + queue.size());
         while (size-- > 0 && (ef = queue.poll())!= null){
             if(ef.isDone()){
                 ef.onComplete();

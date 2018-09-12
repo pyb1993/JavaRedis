@@ -15,7 +15,6 @@ import java.util.Map;
 public class MessageRegister {
     private static final Map<String, Class<?>> clazzMapping = new HashMap<>();
     private static final Map<String, RedisCommandHandler<?>> handlerMapping = new HashMap<>();
-    private static final MessageRegister sigleton = new MessageRegister();
     public static final DefaultHandler defaultHandler = new DefaultHandler();
 
 

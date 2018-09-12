@@ -21,5 +21,17 @@ public class RedisUtil {
         return true;
     }
 
+    // 获取最接近二次幂
+    public static int sizeForTable(int cap){
+        int n = cap - 1;
+        n |= n >>> 1;
+        n |= n >>> 2;
+        n |= n >>> 4;
+        n |= n >>> 8;
+        n |= n >>> 16;
+        n = (n < 0) ? 1 : n + 1;
+        return n;
+    }
+
 
 }

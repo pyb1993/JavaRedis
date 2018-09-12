@@ -22,7 +22,7 @@ import java.util.List;
 public class MessageDecoder extends ReplayingDecoder<MessageInput> {
     static final int MAX_LEN = 1 << 20;
 
-
+    // todo 这里的String可以池化
     @Override
     protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
         Logger.debug("recieve data");

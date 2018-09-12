@@ -105,7 +105,7 @@ public class RedisTimerWheel {
                 RedisDb.del(obj.getKey());
                 if((num & 255) == 0){
                     updateSystemTime();
-                    System.out.println("index:" + curIndex + " num:" + num + " used time " + (getSystemTimeMillSeconds() - lastProcessed));
+                    //System.out.println("index:" + curIndex + " num:" + num + " used time " + (getSystemTimeMillSeconds() - lastProcessed));
                     if((getSystemTimeMillSeconds() - lastProcessed) > 5 && slot.size() > 255 && !slot.isSubmitted() /*&& !RedisDb.RedisMap.inRehashProgress()*/){
                         // 超过5ms,且剩余的元素也很多,并且没有提交过任务那么直接提交一个异步任务
                         System.out.println("submit task");
@@ -159,14 +159,14 @@ public class RedisTimerWheel {
 
                 // 失效的key小于 %25,那么可以直接结束了
                 if(expired < 4){
-                    System.out.println("太少:" + expired);
+                    //System.out.println("太少:" + expired);
                     break;
                 }
 
                 // 检查时间,目前不能超过5ms
                 updateSystemTime();
                 if((getSystemTimeMillSeconds() - lastProcessed) > 5){
-                    System.out.println("随机抽取时间: " + (getSystemTimeMillSeconds() - lastProcessed) + "expired :" + expired);
+                    //System.out.println("随机抽取时间: " + (getSystemTimeMillSeconds() - lastProcessed) + "expired :" + expired);
                     break;
                 }
             }

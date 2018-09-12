@@ -99,7 +99,10 @@ public class CommandDispatcher extends ChannelInboundHandlerAdapter {
             return;
         }
 
-        // todo 实现成Redis自己的协议,这样就不需要使用fastJson来解析了,直接二进制传输,也就是不注册 get请求的Class,这样可以快一点
+        // todo 为了避免使用String,一个做法是: MessageInput就使用RedisString
+        // todo getPayLoad的逻辑修改为对协议进行解析和fastJson一起使用
+        // todo 首先解决RedisStringPair的问题,+代表单行字符串\r\n代表结尾,$代表多行字符,\r\n代表换行
+        // todo 所以针对get/set/expire命令,就直接计算 RedisString然后传入
         // 达到的目的是 FastJson序列化和自定义二进制协议可以同时保证
         Object o = input.getPayload(clazz);
         handler.handle(ctx, input.getRequestId(), o);

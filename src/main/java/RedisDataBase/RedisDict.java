@@ -9,12 +9,15 @@ import java.util.Map;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.AbstractQueuedSynchronizer;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * RedisDict结构,这一层同时负责 普通状态 -> 并发状态, 渐进rehash 的相关逻辑
  * 对外部透明
+ *
+ *
  * **/
 
 public class RedisDict<K,T>{
@@ -124,7 +127,7 @@ public class RedisDict<K,T>{
             }else{
                 // 这里处于扩容状态， rehashMap != null
                 // 但是由于没有锁的保护,可能突然变成非扩容状态,rehashMap == NULL
-                // 所以 stopRehash只能在「没有异步线程的」
+                // 所以 stopRehash只能在「没有异步线程持有dict时候才能执行」
                 safePut(key,val);
             }
             greadUnLock();
@@ -157,7 +160,7 @@ public class RedisDict<K,T>{
      * 考虑这样的情况:
      *     异步线程执行到1,ret == null
      *     主线程突然执行StopRehash
-     *     然后异步线程执行到2发现返回false,于是不执行4
+     *     然后异步线程执行到3发现返回false,于是不执行4
      *     实际上元素就在rehashMap里面,但是由于切换状态导致查找失败
      *
      *     所以stopRehash必须在没有竞争的情况下执行
