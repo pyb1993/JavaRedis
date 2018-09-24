@@ -1,6 +1,6 @@
 package MessageInput;
 
-import Common.Logger;
+import RedisDataBase.RedisString;
 import com.alibaba.fastjson.JSON;
 
 /*
@@ -9,21 +9,21 @@ import com.alibaba.fastjson.JSON;
  payload 一定是一个json格式的参数,利用fastJson直接转换成对应的类
  */
 public class MessageInput{
-    private String type;
-    private String requestId;
-    private String payload;
+    private RedisString type;
+    private RedisString requestId;
+    private RedisString payload;
 
-    public MessageInput(String type, String requestId, String payload) {
+    public MessageInput(RedisString type, RedisString requestId, RedisString payload) {
         this.type = type;
         this.requestId = requestId;
         this.payload = payload;
     }
 
-    public String getType() {
+    public RedisString getType() {
         return type;
     }
 
-    public String getRequestId() {
+    public RedisString getRequestId() {
         return requestId;
     }
 
@@ -32,6 +32,11 @@ public class MessageInput{
         if (payload == null) {
             return null;
         }
-        return JSON.parseObject(payload, clazz);
+
+        return JSON.parseObject(payload.toString(), clazz);
+    }
+
+    public RedisString getContent(){
+        return payload;
     }
 }

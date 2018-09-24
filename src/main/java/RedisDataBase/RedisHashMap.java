@@ -74,7 +74,7 @@ class RedisHashMap<K,V>  {
         V ret = (e = removeNode(hash(key), key, null, false)) == null ?
                 null : e.value;
 
-        if(e.value instanceof AbstractPooledObject){
+        if(e != null && e.value instanceof AbstractPooledObject){
             ((AbstractPooledObject) e.value).release();
         }
         return ret;
@@ -122,6 +122,7 @@ class RedisHashMap<K,V>  {
 
     // protected方法
     final Node<K,V> getNode(int hash, Object key) {
+
         Node<K,V>[] tab; Node<K,V> first, e; int n; K k;
         if ((tab = table) != null && (n = tab.length) > 0 &&
                 (first = tab[(n - 1) & hash]) != null) {

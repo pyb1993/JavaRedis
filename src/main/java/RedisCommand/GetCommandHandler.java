@@ -4,6 +4,7 @@ import Common.Logger;
 import MessageOutput.MessageOutput;
 import RedisDataBase.RedisDb;
 import RedisDataBase.RedisObject;
+import RedisDataBase.RedisString;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 
@@ -11,17 +12,19 @@ import io.netty.channel.ChannelHandlerContext;
  *  如果key不存在,返回一个空字符串
  *
  * ***/
-public class GetCommandHandler implements RedisCommandHandler<String> {
-
-    // todo 这个key如果使用RedisString,则应该在这里释放
+public class GetCommandHandler implements RedisCommandHandler<RedisString> {
+    static private final RedisString getConstant = new RedisString("get");
+    // 这里是线程安全的,因为异步线程删除只会直接放入removedQueue,不会直接分配出去
     @Override
-    public void handle(ChannelHandlerContext ctx, String requestId, String key){
+    public void handle(ChannelHandlerContext ctx, RedisString requestId, RedisString key){
         // 执行 get key 的命令
         RedisObject ret = RedisDb.get(key);
+        key.release();
         if(ret != null) {
             //Logger.debug(requestId + " " + ctx.channel() + ":get resp " + (String) ret.getData());
         }
-        ctx.writeAndFlush(new MessageOutput(requestId, "get", ret == null ? "" : ret.getData()));
+        ctx.writeAndFlush(new MessageOutput(requestId, getConstant, ret == null ? "" : ret.getData()));
+
     }
 }
 

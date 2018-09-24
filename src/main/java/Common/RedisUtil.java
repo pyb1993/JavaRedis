@@ -1,5 +1,7 @@
 package Common;
 
+import RedisDataBase.RedisString;
+
 /* 辅助类 */
 public class RedisUtil {
 
@@ -21,6 +23,45 @@ public class RedisUtil {
         return true;
     }
 
+    public static boolean isInteger(RedisString s) {
+        int len = s.size();
+        if(len == 0) return false;
+        if( s.getByte(0) == '-' && len == 1) {
+            return false;
+        }
+
+        for(int i = 0; i < len; i++) {
+            byte c = s.getByte(i);
+            if(c > '9' || c < '0'){
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public Integer parseInt(RedisString s){
+        int len = s.size();
+        int i = 0;
+        int sign = 1;
+        int sum = 0;
+        if(s.getByte(0) == '-'){
+            i++;
+            sign = -1;
+        }
+
+        for(; i < len; i++) {
+            byte c = s.getByte(i);
+            if(c > '9' || c < '0') {
+                return null;
+            }else{
+                sum = sum * 10 + c - '0';
+            }
+        }
+
+        return sum * sign;
+    }
+
+
     // 获取最接近二次幂
     public static int sizeForTable(int cap){
         int n = cap - 1;
@@ -32,6 +73,8 @@ public class RedisUtil {
         n = (n < 0) ? 1 : n + 1;
         return n;
     }
+
+
 
 
 }

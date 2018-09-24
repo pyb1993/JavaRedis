@@ -3,13 +3,12 @@ import Common.Logger;
 import MessageRegister.MessageRegister;
 import MessageInput.MessageInput;
 import RedisCommand.RedisCommandHandler;
+import RedisDataBase.RedisString;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.handler.codec.serialization.ClassResolvers;
 
-import java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy;
+import java.util.*;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /*
 * 这个类实际上是用来处理传入的Message的
@@ -17,36 +16,18 @@ import java.util.concurrent.atomic.AtomicInteger;
 * 这里可以写成单例模式,但是为了图简单就没有这样做
 * */
 public class CommandDispatcher extends ChannelInboundHandlerAdapter {
+    static Set<RedisString> protocalSet = new HashSet<>() {
+        {this.add(new RedisString("get"));
+        this.add(new RedisString("set"));
+        this.add(new RedisString("hget"));}
+    };
+
+
     // 业务线程池,用来执行各种业务
     private static ThreadPoolExecutor executor;
-    static
-    {
-        /****** 初始化整个executor 用来异步执行Redis的业务逻辑,目前来看没有必要
 
-        BlockingQueue<Runnable> queue = new ArrayBlockingQueue<>(1000);
-
-        // 创造线程的工厂类,暂时没有进行任何调整
-        ThreadFactory factory = new ThreadFactory() {
-            AtomicInteger seq = new AtomicInteger();
-
-            @Override
-            public Thread newThread(Runnable r) {
-                Logger.debug("create thread");
-                Thread t = new Thread(r);
-                t.setName("rpc-" + seq.getAndIncrement());
-                return t;
-            }
-        };
-
-        // 闲置时间超过30秒的线程自动销毁
-        executor = new ThreadPoolExecutor(1,
-                1,
-                30,
-                TimeUnit.SECONDS,
-                queue,
-                factory,
-                new CallerRunsPolicy());
-         *******/
+    public static boolean newProtocal(RedisString key){
+        return protocalSet.contains(key);
     }
 
     public static void closeGracefully() {
@@ -104,8 +85,13 @@ public class CommandDispatcher extends ChannelInboundHandlerAdapter {
         // todo 首先解决RedisStringPair的问题,+代表单行字符串\r\n代表结尾,$代表多行字符,\r\n代表换行
         // todo 所以针对get/set/expire命令,就直接计算 RedisString然后传入
         // 达到的目的是 FastJson序列化和自定义二进制协议可以同时保证
-        Object o = input.getPayload(clazz);
-        handler.handle(ctx, input.getRequestId(), o);
+
+        if(newProtocal(input.getType())){
+            handler.handle(ctx, input.getRequestId(), input.getContent());
+        }else{
+            Object o = input.getPayload(clazz);
+            handler.handle(ctx, input.getRequestId(), o);
+        }
     }
 
     @Override

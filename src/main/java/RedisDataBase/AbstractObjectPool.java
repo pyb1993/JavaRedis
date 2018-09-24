@@ -60,7 +60,6 @@ public abstract class AbstractObjectPool<T extends AbstractPooledObject> impleme
             return true;
         }
 
-
         /**
          * 返回队头元素,不执行删除操作,若队列为空,返回null
          * @return
@@ -140,12 +139,11 @@ public abstract class AbstractObjectPool<T extends AbstractPooledObject> impleme
         }
     }
 
-
+    int lengthTable[];
     ObjectContainer[] objectPool;
     ConcurrentLinkedDeque<T> removedDeque; // 异步线程用来保存的放回的元素的
-    int lengthTable[];
-    Map<Integer,Integer> lenIndexMap;
-    int maxCapcity;
+    Map<Integer,Integer> lenIndexMap; // todo 未来需要优化,变成数组更快
+
     int hugeThreshold = 4096;// 最大可以分配的对象
     double scaleDown = 0.5;// 衰减系数
     boolean usePool[];
@@ -156,9 +154,16 @@ public abstract class AbstractObjectPool<T extends AbstractPooledObject> impleme
 
     abstract public void initLengthTable();
     abstract public T newInstance(int len);
-
-    public void AbstractObjectPool(){
+    abstract public void initObjectPool();
+    public AbstractObjectPool(){
         initLengthTable();
+        initObjectPool();
+        int lenNum = lengthTable.length;
+        this.estCum = new int[lenNum];
+        this.allocateStatistc =  new int[lenNum];
+        this.deallocateStatistic = new int[lenNum];
+        this.accumulation = new int[lenNum];
+        this.usePool = new boolean[lenNum];
     }
 
     // 会尝试分配一个池化的对象,如果当前池不够用或者没有开启池化,那么就直接分配一个
@@ -170,7 +175,6 @@ public abstract class AbstractObjectPool<T extends AbstractPooledObject> impleme
             return allocated == null ? newInstance(len) : allocated;
         }
     }
-
 
     // 查找具体的对象
     // todo 这里可以优化性能,indexOfLen重复计算了
@@ -208,6 +212,10 @@ public abstract class AbstractObjectPool<T extends AbstractPooledObject> impleme
                 accumulation[index] += 1;
             }else if(est == 0){
                 accumulation[index] -= 1;
+                // 在没有启用池化的时候,不会将accumulation[index]变成负数,因为这个时候大概率长期不满足
+                if(usePool[index] ==  false && accumulation[index] < 0){
+                    accumulation[index] = 0;
+                }
             }
 
             int tmpEst = (estCum[index] += est);
@@ -222,8 +230,8 @@ public abstract class AbstractObjectPool<T extends AbstractPooledObject> impleme
                     // case1 est大于等于原来的size的1.5倍,池需要扩大
                     if(tmpEst >= container.size() * 1.5){
                         container.ensureCapacity(tmpEst);
-                    }else if(tmpEst <= container.size() * 0.5 && container.size() > 65536){
-                        // case2 est小于原来的40%,且元素比较多,那么释放多余的引用,但是不会进行缩容
+                    }else if(tmpEst <= container.size() * 0.5 && container.size() >= 65536){
+                        // case2 est小于原来的50%,且元素比较多,那么释放多余的引用,但是不会进行缩容
                         while (container.size() > tmpEst){
                             container.poll();
                         }
@@ -307,6 +315,7 @@ public abstract class AbstractObjectPool<T extends AbstractPooledObject> impleme
          }
      }
 
+     //
     // 从异步线程的队列里面获取元素并放回主线程
     public void releaseFromRemovedDeque(){
         int i = 5000;
@@ -319,9 +328,9 @@ public abstract class AbstractObjectPool<T extends AbstractPooledObject> impleme
     public int indexOfLen(int cap,boolean useMax){
         int n = RedisUtil.sizeForTable(cap);
         n = useMax ? n : ((cap & (cap - 1)) == 0 ? cap : n >> 1);
-        if(n == 8){
+        if(n <= 8){
             return 0;
-        }else if(n == 16){
+        }else if(n <= 16){
             return 1;
         }
 
@@ -331,9 +340,9 @@ public abstract class AbstractObjectPool<T extends AbstractPooledObject> impleme
     // 获取返回的object对应的index
     // 找到第一个小于等于自己大小的index
     public int indexOfObject(int size){
-        if(size == 8){
+        if(size <= 8){
             return 0;
-        }else if(size == 16){
+        }else if(size <= 16){
             return 1;
         }
 

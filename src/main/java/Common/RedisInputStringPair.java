@@ -1,5 +1,7 @@
 package Common;
 
+import RedisDataBase.RedisString;
+
 // 用来传递两个String的结构
 public class RedisInputStringPair{
     String first;
@@ -11,6 +13,8 @@ public class RedisInputStringPair{
     public String getFirst(){
         return  first;
     }
+    public RedisString getFirst2(){ return new RedisString(first);};
+    public RedisString getSecond2(){ return new RedisString(second);};
 
     public String getSecond(){
         return second;

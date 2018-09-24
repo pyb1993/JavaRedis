@@ -3,6 +3,7 @@ package MessageRegister;
 import Common.RedisInputStringPair;
 import Common.RedisStringList;
 import RedisCommand.*;
+import RedisDataBase.RedisString;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -13,16 +14,16 @@ import java.util.Map;
 */
 
 public class MessageRegister {
-    private static final Map<String, Class<?>> clazzMapping = new HashMap<>();
-    private static final Map<String, RedisCommandHandler<?>> handlerMapping = new HashMap<>();
+    private static final Map<RedisString, Class<?>> clazzMapping = new HashMap<>();
+    private static final Map<RedisString, RedisCommandHandler<?>> handlerMapping = new HashMap<>();
     public static final DefaultHandler defaultHandler = new DefaultHandler();
 
 
-    public static Class<?> getMessage(String type) {
+    public static Class<?> getMessage(RedisString type) {
         return clazzMapping.get(type);
     }
 
-    public static RedisCommandHandler<?> getHandler(String type) {
+    public static RedisCommandHandler<?> getHandler(RedisString type) {
         return handlerMapping.getOrDefault(type,defaultHandler);
     }
 
@@ -44,8 +45,8 @@ public class MessageRegister {
         if (clazz == null || handler == null) {
             throw new RuntimeException("params cannot be null");
         }
-        clazzMapping.put(type, clazz);
-        handlerMapping.put(type, handler);
+        clazzMapping.put(new RedisString(type), clazz);
+        handlerMapping.put(new RedisString(type), handler);
         return this;
     }
 

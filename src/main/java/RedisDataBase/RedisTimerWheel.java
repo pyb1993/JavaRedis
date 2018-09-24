@@ -59,7 +59,7 @@ public class RedisTimerWheel {
 
     // 首先获取系统当前的时间 now
     // 然后计算这个任务应该放到哪里
-    void enqueue(String key,int delay){
+    void enqueue(RedisString key,int delay){
         long now = getSystemSeconds();
         if(delay < slotNum * 4){
             /* 如果是那种延迟很大的过期key,就不放在定时轮里面,而是采用原来redis的随机抽样做法
@@ -147,11 +147,11 @@ public class RedisTimerWheel {
             while (true){
                 int expired = 0;
                 for(int i = 0; i < round; ++i) {
-                    Node e = ExpiresDict.random();
+                    Node<RedisString,Long> e = ExpiresDict.random();
                     if (e != null){
-                        Long expireTime = (Long) e.getValue();
+                        Long expireTime = e.getValue();
                         if(expireTime > getSystemSeconds()){
-                            RedisDb.del((String) e.getKey());// 确定是过期的,所以直接删除,不使用removeIfExpired
+                            RedisDb.del( e.getKey());// 确定是过期的,所以直接删除,不使用removeIfExpired
                             expired++;
                         }
                     }

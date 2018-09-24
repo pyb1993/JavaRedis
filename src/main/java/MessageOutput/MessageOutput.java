@@ -1,21 +1,23 @@
 package MessageOutput;
 
+import RedisDataBase.RedisString;
+
 public class MessageOutput {
-    private String requestId;
-    private String type;
+    private RedisString requestId;
+    private RedisString type;
     private Object payload;
 
-    public MessageOutput(String requestId, String type, Object payload) {
+    public MessageOutput(RedisString requestId, RedisString type, Object payload) {
         this.requestId = requestId;
         this.type = type;
         this.payload = payload;
     }
 
-    public String getType() {
+    public RedisString getType() {
         return this.type;
     }
 
-    public String getRequestId() {
+    public RedisString getRequestId() {
         return requestId;
     }
 

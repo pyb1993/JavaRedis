@@ -23,24 +23,15 @@ public class RedisObject {
     private int type;
     private Object data;
 
-
     // 返回一个RedisObject,参数是String,可能是Integer,或者是普通String
-    static public RedisObject redisStringObject(String obj){
-        if(RedisUtil.isInteger(obj)){
-            Integer n = Integer.parseInt(obj);
-            if(n >= 0 && n < 10000){
-                return RedisDb.RedisIntegerPool[n];
-            }else{
-                return new RedisObject(REDIS_INTEGER,n);
-            }
-        }
+    static public RedisObject redisStringObject(RedisString obj){
 
         return new RedisObject(REDIS_STRING,obj);
     }
 
 
     // 返回一个RedisObject,参数是HashMap
-    static public RedisObject redisHashObject(RedisDict<String,RedisObject> obj){
+    static public RedisObject redisHashObject(RedisDict<RedisString,RedisObject> obj){
         return new RedisObject(REDIS_HASH,obj);
     }
 
@@ -48,7 +39,6 @@ public class RedisObject {
         this.type = type;
         this.data = data;
     }
-
 
     public Object getData(){
         return data;

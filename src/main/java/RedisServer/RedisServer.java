@@ -58,7 +58,6 @@ public class RedisServer {
                         protected void initChannel(SocketChannel ch) throws Exception {
                             ch.pipeline()
                                     .addLast(new IdleStateHandler(60,60,180))
-                                    .addLast(new outHandler())
                                     .addLast(new MessageEncoder());
 
                             ch.pipeline()

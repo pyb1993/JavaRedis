@@ -201,6 +201,8 @@ public class RedisDict<K,T>{
     }
 
 
+
+
     // 是否处于并发状态
     public boolean inConcurrent(){
         return inConcurrent;

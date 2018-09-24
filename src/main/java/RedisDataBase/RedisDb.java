@@ -84,8 +84,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  *
  * */
 public class RedisDb {
-    public static RedisDict<String,RedisObject> RedisMap = new RedisDict<>();
-    public static RedisDict<String,Long> ExpiresDict = new RedisDict<>();// 用来存储所有过期key的过期时间,方便快速查找/判断/修改
+    public static RedisDict<RedisString,RedisObject> RedisMap = new RedisDict<>();
+    public static RedisDict<RedisString,Long> ExpiresDict = new RedisDict<>();// 用来存储所有过期key的过期时间,方便快速查找/判断/修改
 
 
     static final RedisObject[] RedisIntegerPool = new RedisObject[10000];
@@ -99,30 +99,31 @@ public class RedisDb {
         }
     }
 
-    // getString
-    // todo 需要写日志
-    public static void set(String key,RedisObject val)
+
+    public static void set(RedisString key,RedisObject val)
     {
         // todo key -> RedisString
         RedisMap.put(key,val);
     }
 
+
     // 从对应的key获取 object
     // todo key => RedisString
-    public static RedisObject get(String key){
+    public static RedisObject get(RedisString key){
         return getIfValid(key);
     }
 
     // 删除
     // todo 还需要写日志
     // todo 需要考虑对象释放的问题,在remove里面释放value最后释放key
-    public static void del(String key){
+    public static void del(RedisString key){
         RedisMap.remove(key);
         ExpiresDict.remove(key);
     }
 
+
     // 设置超时
-    public static void expire(String key,int expireDelay){
+    public static void expire(RedisString key,int expireDelay){
         if(getIfValid(key) != null) {
             ExpiresTimer.enqueue(key, expireDelay);
             ExpiresDict.put(key, RedisTimerWheel.getSystemSeconds() + expireDelay);// 重新设置过期key
@@ -130,13 +131,18 @@ public class RedisDb {
     }
 
     // 只有过期的key才会被移除
-    public static void removeIfExpired(String key){
+    public static void removeIfExpired(RedisString key){
         if(isExpired(key)){
             del(key);
         }
     }
 
     public static boolean isExpired(String key){
+        Long time = ExpiresDict.get(key);
+        return (time != null) && time < RedisTimerWheel.getSystemSeconds();
+    }
+
+    public static boolean isExpired(RedisString key){
         Long time = ExpiresDict.get(key);
         return (time != null) && time < RedisTimerWheel.getSystemSeconds();
     }
@@ -148,29 +154,29 @@ public class RedisDb {
     }
 
     // 模仿redis hset
-    public static void hset(String key, String field, RedisObject val){
+    public static void hset(RedisString key, RedisString field, RedisObject val){
         RedisObject h = getIfValid(key);
         if(h == null){
-            RedisDict<String,RedisObject> hash = new RedisDict<>();
+            RedisDict<RedisString,RedisObject> hash = new RedisDict<>();
             hash.put(field,val);
             RedisMap.put(key,RedisObject.redisHashObject(hash));
         }else{
-            RedisDict<String,RedisObject> hash = (RedisDict)h.getData();
+            RedisDict<RedisString,RedisObject> hash = (RedisDict)h.getData();
             hash.put(field,val);
         }
     }
 
     // 模仿redis hget
-    public static RedisObject hget(String key, String field){
+    public static RedisObject hget(RedisString key, RedisString field){
         RedisObject h = getIfValid(key);
         if(h != null){
-           return ((RedisDict<String,RedisObject>) h.getData()).get(field);
+           return ((RedisDict<RedisString,RedisObject>) h.getData()).get(field);
         }
         return null;
     }
 
     // 构造hyperLogLog
-    public static void pfadd(String key, List<String> valList){
+    public static void pfadd(RedisString key, List<String> valList){
         RedisObject robj = getIfValid(key);
         HyperLogLog hloglog;
         if(robj == null){
@@ -186,7 +192,7 @@ public class RedisDb {
     }
 
     // pfcount命令,获取基数估计
-    public static long pfcount(String key){
+    public static long pfcount(RedisString key){
         RedisObject robj = getIfValid(key);
         if(robj == null){
             return 0;
@@ -206,15 +212,13 @@ public class RedisDb {
     *
     *
     * */
-    private static RedisObject getIfValid(String key){
+    private static RedisObject getIfValid(RedisString key){
         if(isExpired(key)){
             del(key);
             return null;
         }
         return RedisMap.get(key);
     }
+
+
 }
-
-
-
-

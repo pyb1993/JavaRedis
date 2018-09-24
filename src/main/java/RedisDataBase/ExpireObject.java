@@ -5,13 +5,13 @@ import java.lang.ref.WeakReference;
 // 存储String以及过期时间
 public class ExpireObject implements Comparable<ExpireObject>{
     long expireTime;
-    WeakReference<String> key;
-    ExpireObject(String key, long expireTime){
+    WeakReference<RedisString> key;
+    ExpireObject(RedisString key, long expireTime){
         this.key = new WeakReference<>(key);
         this.expireTime = expireTime;
     }
 
-    String getKey(){
+    RedisString getKey(){
         return key.get();
     }
 

@@ -2,14 +2,18 @@ package RedisCommand;
 
 
 import Common.Logger;
+import RedisDataBase.RedisString;
 import com.alibaba.fastjson.JSON;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufAllocator;
+import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.DecoderException;
 import MessageInput.MessageInput;
 import io.netty.handler.codec.ReplayingDecoder;
 import io.netty.util.CharsetUtil;
 
+import java.nio.ByteBuffer;
 import java.util.List;
 
 /* ReplayingDecoder, 继承BytesToMessageDecoder
@@ -26,21 +30,24 @@ public class MessageDecoder extends ReplayingDecoder<MessageInput> {
     @Override
     protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
         Logger.debug("recieve data");
-        String requestId = readStr(in);
-        String type = readStr(in);
-        String content = readStr(in);
+        RedisString requestId = readRedisString(in);
+        RedisString type = readRedisString(in);
+        RedisString content = readRedisString(in);
         out.add(new MessageInput(type, requestId, content));
     }
 
-    private String readStr(ByteBuf in) {
-        // 字符串先长度后字节数组，统一UTF8编码
+
+    // 用来将String替换成 RedisString
+    private RedisString readRedisString(ByteBuf in){
         int len = in.readInt();
         if (len < 0 || len > MAX_LEN) {
             throw new DecoderException("string too long len = " + len);
         }
-        byte[] bytes = new byte[len];
-        in.readBytes(bytes);
-        return new String(bytes, CharsetUtil.UTF_8);
+
+        RedisString str = RedisString.allocate(len);
+        in.readBytes(str.bytes,0,len);// 将str写入RedisString里面
+        str.setSize(len);
+        return str;
     }
 }
 
