@@ -14,7 +14,6 @@ import java.util.List;
  * **/
 public class PFCountCommandHandler implements RedisCommandHandler<String> {
     static private final RedisString pfcountConstant = new RedisString("pfcount");
-
     public void handle(ChannelHandlerContext ctx, RedisString requestId, String key){
         long count = RedisDb.pfcount(new RedisString(key));// todo 优化
         ctx.writeAndFlush(new MessageOutput(requestId,pfcountConstant,count));

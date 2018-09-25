@@ -87,6 +87,8 @@ public class RedisConcurrentHashMap<K,T> extends RedisHashMap<K,T>{
             rehashMap.put(node.getKey(),node.getValue());// 自动加锁
             node = node.next;
         }
+
+        // todo 如果将node进行池化,那么需要在这里释放node
         map.table[index] = null;//所有的都设置为null,这样就成功将map本身给解决了,map本身的size也应该修改
         tmpSize.addAndGet(-nodeNum);
         lock.unlock();
@@ -94,15 +96,16 @@ public class RedisConcurrentHashMap<K,T> extends RedisHashMap<K,T>{
 
 
     // 应该不存在其它地方可以同时运行了
-    public T remove(Object key){
-        T ret;
+    public void remove(Object key){
         lock(key);
-        ret = map.remove(key);
+        T ret = map.removeAndReturn(key);
         if(ret != null){
             tmpSize.decrementAndGet();
+            if(ret instanceof AbstractPooledObject){
+                ((AbstractPooledObject) ret).release();
+            }
         }
         unlock(key);
-        return  ret;
     }
 
 

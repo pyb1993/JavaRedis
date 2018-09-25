@@ -17,7 +17,7 @@ public class HgetCommandHandler implements RedisCommandHandler<RedisString>  {
     @Override
     public void handle(ChannelHandlerContext ctx, RedisString requestId, RedisString pair){
         // 执行 set key value 的命令
-        //Logger.debug("hget recv :" + message.getFirst() + " " + message.getSecond());
+        // Logger.debug("hget recv :" + message.getFirst() + " " + message.getSecond());
         int len1 = RedisString.readInt(pair,0);
         RedisString key = RedisString.copyRedisString(pair,4,len1);
         int len2 = RedisString.readInt(pair,4 + len1);
@@ -25,6 +25,7 @@ public class HgetCommandHandler implements RedisCommandHandler<RedisString>  {
         RedisObject ret = RedisDb.hget(key,val);
         ctx.writeAndFlush(new MessageOutput(requestId,hgetConstant,ret == null ? "" : ret.getData()));
     }
+
 
 
 

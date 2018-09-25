@@ -182,10 +182,15 @@ public class RedisDict<K,T>{
      * 考虑少删除的情况:
      *     如果执行到1,然后主线程立刻执行stopRehash就存在bug,这会导致原本存在rehashMap里面的元素被错误的忽略
      *
+     * 对象释放: 在这个地方是需要进行释放;
+     *
      *
      * */
     public void remove(K key) {
         map.remove(key);
+        // 释放数据
+
+
         if(inRehashProgress()) {
             greadLock();
             if(inRehashProgress()){
@@ -199,9 +204,6 @@ public class RedisDict<K,T>{
             startRehash();
         }
     }
-
-
-
 
     // 是否处于并发状态
     public boolean inConcurrent(){

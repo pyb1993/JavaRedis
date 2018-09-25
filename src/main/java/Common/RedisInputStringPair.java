@@ -13,17 +13,12 @@ public class RedisInputStringPair{
     public String getFirst(){
         return  first;
     }
-    public RedisString getFirst2(){ return new RedisString(first);};
-    public RedisString getSecond2(){ return new RedisString(second);};
-
     public String getSecond(){
         return second;
     }
-
     public void setFirst(String first){
         this.first = first;
     }
-
     public void setSecond(String second){
         this.second = second;
     }

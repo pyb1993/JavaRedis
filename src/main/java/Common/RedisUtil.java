@@ -39,7 +39,7 @@ public class RedisUtil {
         return true;
     }
 
-    public Integer parseInt(RedisString s){
+    public static Integer parseInt(RedisString s){
         int len = s.size();
         int i = 0;
         int sign = 1;

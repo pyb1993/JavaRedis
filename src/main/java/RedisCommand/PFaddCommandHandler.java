@@ -20,7 +20,7 @@ public class PFaddCommandHandler implements RedisCommandHandler<RedisStringList>
         ArrayList<String> a = message.getArr();
         List<String> values = a.subList(1,a.size());
         String key = a.get(0);
-        RedisDb.pfadd(new RedisString(key),values);// todo 优化
+        RedisDb.pfadd(RedisString.allocate(key),values);// todo 优化
         ctx.writeAndFlush(new MessageOutput(requestId,pfaddConstant,""));
     }
 }

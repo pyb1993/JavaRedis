@@ -60,25 +60,6 @@ public abstract class AbstractObjectPool<T extends AbstractPooledObject> impleme
             return true;
         }
 
-        /**
-         * 返回队头元素,不执行删除操作,若队列为空,返回null
-         * @return
-         */
-        public T peek() {
-            return elementData[front];
-        }
-
-        /**
-         * 返回队头元素,不执行删除操作,若队列为空,抛出异常:NoSuchElementException
-         * @return
-         */
-
-        public T element() {
-            if(isEmpty()){
-                throw new NoSuchElementException("The SeqQueue is empty");
-            }
-            return peek();
-        }
 
         /**
          * 出队,执行删除操作,返回队头元素,若队列为空,返回null
@@ -90,28 +71,6 @@ public abstract class AbstractObjectPool<T extends AbstractPooledObject> impleme
             this.front = ((this.front + 1) & mask);
             size--;
             return temp;
-        }
-
-        /**
-         * 出队,执行删除操作,若队列为空,抛出异常:NoSuchElementException
-         * @return
-         */
-
-        public T remove() {
-            if (isEmpty()){
-                throw new NoSuchElementException("The SeqQueue is empty");
-            }
-            return poll();
-        }
-
-
-        public void clearQueue() {
-            for (int i=this.front; i!=this.rear ; i=(i+1) & mask) {
-                elementData[i] = null;
-            }
-            //复位
-            this.front=this.rear=0;
-            size=0;
         }
 
         /**
@@ -201,44 +160,54 @@ public abstract class AbstractObjectPool<T extends AbstractPooledObject> impleme
         return null;
     }
 
+    // debug用,输出各个统计信息
+    public void print(){
+        int est;
+        for(int index = 0; index < allocateStatistc.length; ++index){
+            est = estimate(allocateStatistc[index],deallocateStatistic[index]);
+            if(est > 0){
+                System.out.println("size: " + lengthTable[index] + " allocate: " + allocateStatistc[index] + " 次" + "release: " + deallocateStatistic[index] + " 次, est: " + est );
+            }
+        }
+    }
+
 
     // 需要创建
     // 作为定时任务运行,每5s检查一次,是否分配的速率和释放的速率大致相等(误差不超过20%)
     // 如果累计的满足条件的次数超过K(K = 3)次,那么就认为可以执行了
-    public void usePoolWhenNeed(){
+    public void usePoolWhenNeed(int k){
         for(int index = 0; index < allocateStatistc.length; ++index){
             int est;
             if((est = estimate(allocateStatistc[index],deallocateStatistic[index])) > 0){
                 accumulation[index] += 1;
             }else if(est == 0){
-                accumulation[index] -= 1;
+                accumulation[index] -= 1;// 这里衰减的稍微快一点
                 // 在没有启用池化的时候,不会将accumulation[index]变成负数,因为这个时候大概率长期不满足
                 if(usePool[index] ==  false && accumulation[index] < 0){
                     accumulation[index] = 0;
                 }
             }
 
-            int tmpEst = (estCum[index] += est);
-            // 连续3次满足条件,那么就进行池化,同时会针对预测过去连续3次预测出的(分配-释放次数)进行加权求和,获得一个平均数
+            // 连续K次(目前k = 5)满足条件,那么就进行池化,同时会针对预测过去连续k次预测出的(分配-释放次数)进行加权求和,获得一个平均数
             ObjectContainer container = objectPool[index];
-            if(accumulation[index] >= 3){
+            if(accumulation[index] >= k){
                 accumulation[index] = 0;
                 if(objectPool[index] == null){
-                    initializeOneList(index,tmpEst);
+                    initializeOneList(index,est);
                 }else{
-                    // 存在2种情况
+                    // 存在3种情况(其中一种是不变)
                     // case1 est大于等于原来的size的1.5倍,池需要扩大
-                    if(tmpEst >= container.size() * 1.5){
-                        container.ensureCapacity(tmpEst);
-                    }else if(tmpEst <= container.size() * 0.5 && container.size() >= 65536){
+                    if(est >= container.size() * 1.5){
+                        container.ensureCapacity(est);
+                    }else if(est <= container.size() * 0.5 && container.size() >= 65536){
                         // case2 est小于原来的50%,且元素比较多,那么释放多余的引用,但是不会进行缩容
-                        while (container.size() > tmpEst){
+                        while (container.size() > est){
                             container.poll();
                         }
                     }
                 }
             }else if(accumulation[index] <= -64){
-                // 连续64次不满足池化,那么就直接释放这个池
+                // 留一个64的Buffer,避免反复初始化 / 释放
                 releaseOneList(index);
                 accumulation[index] = 0;
             }
@@ -246,13 +215,13 @@ public abstract class AbstractObjectPool<T extends AbstractPooledObject> impleme
     }
 
     // 大致相等
-    public int estimate(int a,int b){
-        if(a < 1024 || b < 1024){
+    public int estimate(long a,long b){
+        if(a < 2048 || b < 2048){
             return 0;// 数据太小,不值得池化
         }else {
-            int avg = (2 * a * b) / (a + b);// 调和平均数
+            long avg = (2 * a * b) / (a + b);// 调和平均数
             // 注意每5s检查一次得到的是过去5s平均数的2倍左右,这样保证一定冗余
-            return avg;
+            return (int)avg;
         }
     }
 
@@ -268,11 +237,12 @@ public abstract class AbstractObjectPool<T extends AbstractPooledObject> impleme
     }
 
     // 将定时运行
-    // 每过一s就进行衰减
+    // 每过T就进行衰减
     public void scaleDown(){
         for(int index = 0; index < objectPool.length; ++index){
             allocateStatistc[index] *= scaleDown;// 分配次数进行一次衰减
-            estCum[index] *= 0.3;// 让估计值进行一次衰减
+            deallocateStatistic[index] *= scaleDown; // 释放次数进行一次衰减
+            //estCum[index] *= 0.3;// 让估计值进行一次衰减
         }
     }
 

@@ -18,12 +18,13 @@ public class RedisString extends AbstractPooledObject {
     int hash;
     public int size;// 字符长度
     public byte[] bytes;
-    static RedisStringPool pool = new RedisStringPool();
+    public final static RedisStringPool pool = new RedisStringPool();
 
     public static RedisString allocate(int len){
         return pool.allocate(len);
     }
 
+    public static RedisString allocate(String s){return pool.getString(s);}
     public static RedisString allocate(RedisString s,int pos,int len){
         return pool.getString(s,pos,len);
     }
@@ -37,6 +38,8 @@ public class RedisString extends AbstractPooledObject {
         bytes = s.getBytes();
         size = bytes.length;
     }
+
+
 
 
     // check params valid
@@ -89,13 +92,13 @@ public class RedisString extends AbstractPooledObject {
 
     // 释放的时候要进行释放
     public void release(){
-        size = 0;
         if(RedisServer.isCurrentThread()){
             pool.releaseObject(this);
         }else{
             // 先放到一个并发数据结构里面,然后主线程再读
             pool.releaseInOtherThread(this);
         }
+        size = 0;
     }
 
     public static int readInt(RedisString s,int pos){
@@ -109,6 +112,7 @@ public class RedisString extends AbstractPooledObject {
     // 从RedisString里面拷贝一部分出来成为新的RedisString
     public static RedisString copyRedisString(RedisString s,int pos,int len){
         RedisString ret = RedisString.allocate(s,pos,len);
+
         return ret;
     }
 }

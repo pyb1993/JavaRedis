@@ -45,8 +45,9 @@ public class MessageRegister {
         if (clazz == null || handler == null) {
             throw new RuntimeException("params cannot be null");
         }
-        clazzMapping.put(new RedisString(type), clazz);
-        handlerMapping.put(new RedisString(type), handler);
+
+        clazzMapping.put(RedisString.allocate(type), clazz);
+        handlerMapping.put(RedisString.allocate(type), handler);
         return this;
     }
 

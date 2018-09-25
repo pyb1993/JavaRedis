@@ -3,6 +3,8 @@ package RedisServer;
 import CommandDispatcher.CommandDispatcher;
 import MessageRegister.MessageRegister;
 import RedisCommand.MessageEncoder;
+import RedisDataBase.AbstractObjectPool;
+import RedisDataBase.RedisString;
 import RedisFuture.RedisRunnable;
 import RedisDataBase.RedisDb;
 import RedisDataBase.RedisTimerWheel;
@@ -80,6 +82,10 @@ public class RedisServer {
             acceptGroup.scheduleAtFixedRate(new RedisRunnable(()->RedisDb.processExpires()),1,250,TimeUnit.MILLISECONDS);
             // 每xxms执行一次,用来执行 移除过期key 任务完成的回调
             acceptGroup.scheduleAtFixedRate(new RedisRunnable(()->RedisServer.onComplete()),2,137,TimeUnit.MILLISECONDS);
+            // 先输出一下统计情况,观察一下
+            acceptGroup.scheduleAtFixedRate(new RedisRunnable(()->RedisString.pool.print()),5,100,TimeUnit.MILLISECONDS);
+            //
+            acceptGroup.scheduleAtFixedRate(new RedisRunnable(()->RedisServer.scaleDown()),5,1000,TimeUnit.MILLISECONDS);
 
             f.channel().closeFuture().sync();
             Logger.log("close done");
@@ -87,6 +93,23 @@ public class RedisServer {
             acceptGroup.shutdownGracefully().sync();
         }
     }
+
+    // 每过时间T就会执行,这里的T设定为1S
+    public static void scaleDown(){
+        AbstractObjectPool pool = RedisString.pool;
+        pool.scaleDown();
+    }
+
+    // 每过时间T就会执行,这里的T设置为1S
+    public static void statisticForPool(){
+        // 首先要对RedisStringPool进行统计
+        AbstractObjectPool pool = RedisString.pool;
+        pool.usePoolWhenNeed(5);
+
+
+    }
+
+
 
     public static boolean isCurrentThread(){
         assert mThread != null;

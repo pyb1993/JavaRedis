@@ -66,19 +66,44 @@ class RedisHashMap<K,V>  {
 
     /* 为了使用多态
      * todo 这里需要使用对象池将原来的对象进行归还
-     * todo if InstanceOf PoolObject,那么就要归还
      * todo 连Entry都归还掉
      */
-    public V remove(Object key) {
+    public void remove(Object key) {
+        Node<K,V> e;
+        e = removeNode(hash(key), key, null, false);
+        doRelease(e);
+    }
+
+    // 这里不释放,所以没办法
+    public V removeAndReturn(Object key){
         Node<K,V> e;
         V ret = (e = removeNode(hash(key), key, null, false)) == null ?
                 null : e.value;
 
-        if(e != null && e.value instanceof AbstractPooledObject){
-            ((AbstractPooledObject) e.value).release();
+        if(e != null){
+            if(e.key instanceof AbstractPooledObject) {
+                ((AbstractPooledObject) e.key).release();
+            }
         }
         return ret;
     }
+
+    void doRelease(Node e){
+        if(e != null){
+            if(e.key instanceof AbstractPooledObject) {
+                ((AbstractPooledObject) e.key).release();
+            }
+
+            if(e.value != null && e.value instanceof AbstractPooledObject){
+                ((AbstractPooledObject) e.value).release();
+            }
+
+            // todo Release Entry自己
+        }
+    }
+
+
+
 
     final Node<K,V> removeNode(int hash, Object key, Object value, boolean matchValue) {
         Node<K,V>[] tab = table;

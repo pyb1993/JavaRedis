@@ -19,7 +19,9 @@ public class CommandDispatcher extends ChannelInboundHandlerAdapter {
     static Set<RedisString> protocalSet = new HashSet<>() {
         {this.add(new RedisString("get"));
         this.add(new RedisString("set"));
-        this.add(new RedisString("hget"));}
+        this.add(new RedisString("hget"));
+        this.add(new RedisString("expire"));
+        }
     };
 
 
@@ -92,6 +94,10 @@ public class CommandDispatcher extends ChannelInboundHandlerAdapter {
             Object o = input.getPayload(clazz);
             handler.handle(ctx, input.getRequestId(), o);
         }
+
+        RedisString s = RedisString.allocate("fdshfhsakjfhaksjhfaksjhfaksjhfjaksfyuctiorewuirhqoifjdklafdjasldfmkas;ldfjasf");
+        s.release();
+
     }
 
     @Override

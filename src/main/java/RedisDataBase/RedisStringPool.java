@@ -19,7 +19,7 @@ public class RedisStringPool extends AbstractObjectPool<RedisString>{
     @Override
     public void initLengthTable(){
         // todo 实现长度表
-        super.lengthTable = new int[]{8,16,32,64,128,256,512,1024,1536,2048,3092,4096,6114,8192};
+        super.lengthTable = new int[]{8,32,64,128,256,512,1024,1536,2048,3092,4096,6114,8192};
         // todo 未来可以优化
         super.lenIndexMap = new HashMap<Integer, Integer>(){
             {
