@@ -43,9 +43,6 @@ class Node<K,V>{
     }
 }
 
-
-
-
 // 用来处理rehash情况
 // todo 这里必须要全部重写一遍了,因为自动扩容没有办法控制,即便在rehash的时候也是线程不安全的
 class RedisHashMap<K,V>  {
@@ -74,18 +71,12 @@ class RedisHashMap<K,V>  {
         doRelease(e);
     }
 
-    // 这里不释放,所以没办法
-    public V removeAndReturn(Object key){
+    // 这里会进行release
+    public Boolean remove2(Object key){
         Node<K,V> e;
-        V ret = (e = removeNode(hash(key), key, null, false)) == null ?
-                null : e.value;
-
-        if(e != null){
-            if(e.key instanceof AbstractPooledObject) {
-                ((AbstractPooledObject) e.key).release();
-            }
-        }
-        return ret;
+        V ret = (e = removeNode(hash(key), key, null, false)) == null ? null : e.value;
+        doRelease(e);
+        return ret != null;
     }
 
     void doRelease(Node e){
@@ -169,6 +160,7 @@ class RedisHashMap<K,V>  {
     public V put(K key, V value) {
         return putVal(hash(key), key, value, false);
     }
+
     final V putVal(int hash, K key, V value, boolean onlyIfAbsent) {
         Node<K,V>[] tab; Node<K,V> p;
         int n = table.length;

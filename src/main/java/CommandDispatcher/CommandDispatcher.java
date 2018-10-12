@@ -45,7 +45,7 @@ public class CommandDispatcher extends ChannelInboundHandlerAdapter {
     @Override
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
         // 客户端走了一个
-        Logger.debug(ctx.channel() + "connection leaves");
+        //Logger.debug(ctx.channel() + "connection leaves");
         ctx.close();// 客户端已经主动关闭了
     }
 
@@ -55,12 +55,6 @@ public class CommandDispatcher extends ChannelInboundHandlerAdapter {
         if (msg instanceof MessageInput) {
             // 用业务线程池处理消息 || 直接在IO线程里面进程处理
             this.handleCommand(ctx, (MessageInput) msg);
-
-       /*
-        异步执行逻辑,目前没有必要
-        executor.submit(() -> {
-                this.handleCommand(ctx, (MessageInput) msg);
-            });*/
         }
     }
 
@@ -74,12 +68,13 @@ public class CommandDispatcher extends ChannelInboundHandlerAdapter {
          -------
         这里使用将执行Reactor模式里面的Dispatcher的逻辑,把需要的东西传递到具体的handler里面
     **/
-    private void handleCommand(ChannelHandlerContext ctx, MessageInput input) {
-        Class<?> clazz = MessageRegister.getMessage(input.getType());// 有可能为null,说明没有注册
-        RedisCommandHandler<Object> handler = (RedisCommandHandler<Object>) MessageRegister.getHandler(input.getType());
+    private void handleCommand(ChannelHandlerContext ctx, MessageInput input) throws Exception {
+        RedisString type = input.getType();
+        RedisString requestId = input.getRequestId();
+        Class<?> clazz = MessageRegister.getMessage(type);// 有可能为null,说明没有注册
+        RedisCommandHandler<Object> handler = (RedisCommandHandler<Object>) MessageRegister.getHandler(type);
         if(clazz == null){
-            handler.handle(ctx, input.getRequestId(), input.getType());
-            return;
+            throw new Exception("Unknonw type");
         }
 
         // todo 为了避免使用String,一个做法是: MessageInput就使用RedisString
@@ -87,17 +82,15 @@ public class CommandDispatcher extends ChannelInboundHandlerAdapter {
         // todo 首先解决RedisStringPair的问题,+代表单行字符串\r\n代表结尾,$代表多行字符,\r\n代表换行
         // todo 所以针对get/set/expire命令,就直接计算 RedisString然后传入
         // 达到的目的是 FastJson序列化和自定义二进制协议可以同时保证
-
-        if(newProtocal(input.getType())){
-            handler.handle(ctx, input.getRequestId(), input.getContent());
+        // 必须要释放type！！！！！！！！！！！！！
+        if(newProtocal(type)){
+            handler.handle(ctx, requestId, input.getContent());
         }else{
             Object o = input.getPayload(clazz);
-            handler.handle(ctx, input.getRequestId(), o);
+            handler.handle(ctx, requestId, o);
         }
 
-        RedisString s = RedisString.allocate("fdshfhsakjfhaksjhfaksjhfaksjhfjaksfyuctiorewuirhqoifjdklafdjasldfmkas;ldfjasf");
-        s.release();
-
+        type.release();// 注意,释放type很重要,否则会造成对象泄漏
     }
 
     @Override

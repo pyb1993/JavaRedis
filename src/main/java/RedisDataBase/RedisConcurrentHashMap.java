@@ -1,5 +1,7 @@
 package RedisDataBase;
 
+import Common.Logger;
+
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -96,16 +98,16 @@ public class RedisConcurrentHashMap<K,T> extends RedisHashMap<K,T>{
 
 
     // 应该不存在其它地方可以同时运行了
+    // lock必须要保存,因为remove2会释放key导致这里的key被其它线程占有而被修改
     public void remove(Object key){
-        lock(key);
-        T ret = map.removeAndReturn(key);
-        if(ret != null){
+        EasyLock lock = getLock(key);
+        lock.lock();
+        Boolean ret = map.remove2(key);
+        lock.unlock();
+
+        if(ret){
             tmpSize.decrementAndGet();
-            if(ret instanceof AbstractPooledObject){
-                ((AbstractPooledObject) ret).release();
-            }
         }
-        unlock(key);
     }
 
 
@@ -220,10 +222,10 @@ class EasyLock {
         int num = 1;
         while (true) {
             num++;
-            if(lc.get() == false && lc.compareAndSet(false,true)){
+            if(!lc.get() && lc.compareAndSet(false,true)){
                 break;
             }
-            System.out.println("get lock failed");
+            Logger.debug("get lock failed");
             if((num & 7) == 0){
                 Thread.yield();
             }
@@ -232,9 +234,14 @@ class EasyLock {
     }
 
     public void unlock(){
+        // todo removed
+        if(!lc.get()){
+            System.out.println("failed failed failed!!!!!!!!!!!!!!!!!!!!!!");
+            return;
+        }
         assert lc.get();
         while (!lc.compareAndSet(true,false)){
-            System.out.println("unlock failed");
+            Logger.debug("unlock failed");
         }
         return;
     }

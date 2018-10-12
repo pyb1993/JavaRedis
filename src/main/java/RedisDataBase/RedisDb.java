@@ -102,7 +102,6 @@ public class RedisDb {
 
     public static void set(RedisString key,RedisObject val)
     {
-        // todo key -> RedisString
         RedisMap.put(key,val);
     }
 
@@ -135,11 +134,6 @@ public class RedisDb {
         if(isExpired(key)){
             del(key);
         }
-    }
-
-    public static boolean isExpired(String key){
-        Long time = ExpiresDict.get(key);
-        return (time != null) && time < RedisTimerWheel.getSystemSeconds();
     }
 
     public static boolean isExpired(RedisString key){

@@ -41,6 +41,7 @@ public class MessageEncoder extends MessageToMessageEncoder<MessageOutput> {
         out.add(buf);
 
         // 在这里可以开始进行释放 requestId可以立刻释放的，type是static,不能释放
+
         msg.getRequestId().release();
         // payload能否释放要根据命令来,所以需要在各个handler里面进行释放,这里不能统一释放
     }
@@ -51,10 +52,13 @@ public class MessageEncoder extends MessageToMessageEncoder<MessageOutput> {
         buf.writeBytes(s.getBytes(CharsetUtil.UTF_8));
     }
 
+    // 注意这里不能全部写入
     private void writeStr(ByteBuf buf, RedisString s) {
         int len = s.size();
         buf.writeInt(len);
-        buf.writeBytes(s.bytes);
+        if(len > 0) {
+            buf.writeBytes(s.bytes, 0, s.size());
+        }
     }
 }
 

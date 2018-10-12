@@ -25,7 +25,6 @@ public class RedisObject {
 
     // 返回一个RedisObject,参数是String,可能是Integer,或者是普通String
     static public RedisObject redisStringObject(RedisString obj){
-
         return new RedisObject(REDIS_STRING,obj);
     }
 

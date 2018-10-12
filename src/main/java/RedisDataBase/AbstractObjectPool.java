@@ -27,8 +27,8 @@ public abstract class AbstractObjectPool<T extends AbstractPooledObject> impleme
 
         public ObjectContainer(int capacity){
             capacity = RedisUtil.sizeForTable(capacity);
-            elementData = (T[]) new Object[capacity];
-            front = rear=0;
+            elementData = (T[]) new AbstractPooledObject[capacity];
+            front = rear = 0;
             mask = capacity - 1;
         }
 
@@ -55,7 +55,7 @@ public abstract class AbstractObjectPool<T extends AbstractPooledObject> impleme
             //添加data
             elementData[this.rear]=data;
             //更新rear指向下一个空元素的位置
-            this.rear=(this.rear+1)%elementData.length;
+            this.rear=(this.rear+1) % elementData.length;
             size++;
             return true;
         }
@@ -65,7 +65,7 @@ public abstract class AbstractObjectPool<T extends AbstractPooledObject> impleme
          * 出队,执行删除操作,返回队头元素,若队列为空,返回null
          * @return
          */
-
+        // 这里的front导致outofBound
         public T poll() {
             T temp = this.elementData[this.front];
             this.front = ((this.front + 1) & mask);
@@ -84,17 +84,17 @@ public abstract class AbstractObjectPool<T extends AbstractPooledObject> impleme
 
             T[] old = elementData;
             int newCapacity = RedisUtil.sizeForTable(capacity);
-            elementData= (T[]) new Object[newCapacity];
+            elementData = (T[]) new AbstractPooledObject[newCapacity];
             int j=0;
             //复制元素
-            for (int i=this.front; i!=this.rear ; i=(i+1) & mask) {
+            for (int i = this.front; i != this.rear ; i = (i + 1) & mask) {
                 elementData[j++] = old[i];
             }
             // 恢复front,rear指向
             // 修改maks
-            this.front=0;
-            this.rear=j;
-            this.mask = newCapacity -1;
+            this.front = 0;
+            this.rear = j;
+            this.mask = newCapacity - 1;
         }
     }
 
@@ -110,10 +110,13 @@ public abstract class AbstractObjectPool<T extends AbstractPooledObject> impleme
     int[] allocateStatistc;
     int[] deallocateStatistic;
     int[] accumulation;// 累计需要池化的次数
+    int[] stat;// todo removed,用来统计实际分配了多少次
+    int[] stat2;// todo removed,用来统计new了多少次
 
     abstract public void initLengthTable();
     abstract public T newInstance(int len);
     abstract public void initObjectPool();
+    abstract public ObjectContainer getSubObjContainer(int size);// 用来获取真正类型的Container
     public AbstractObjectPool(){
         initLengthTable();
         initObjectPool();
@@ -123,91 +126,108 @@ public abstract class AbstractObjectPool<T extends AbstractPooledObject> impleme
         this.deallocateStatistic = new int[lenNum];
         this.accumulation = new int[lenNum];
         this.usePool = new boolean[lenNum];
+        this.removedDeque = new ConcurrentLinkedDeque<>();
+        stat = new int[lenNum];
+        stat2 = new int[lenNum];
     }
 
-    // 会尝试分配一个池化的对象,如果当前池不够用或者没有开启池化,那么就直接分配一个
+
+    // 会尝试分配一个池化的对象,如果当前池不够用或者没有开启池化,那么就直接分配一个(至少要分配lengthTable[0]大小的长度)
     public T allocate(int len){
+        len = len < lengthTable[0] ? lengthTable[0] : len;
         if(len > hugeThreshold){
             return newInstance(len);// 直接分配一个对象
         }else{
+            int index = indexOfLen(len);
+            doStatisticBeforeAllocate(index);
             T allocated = getObject0(len);// 尝试从池化的过程获得一个对象
-            return allocated == null ? newInstance(len) : allocated;
+            if(allocated != null){
+                stat[indexOfLen(len)]++;
+            }else{
+                stat2[indexOfLen(len)]++;
+            }
+            allocated =  allocated == null ? newInstance(lengthTable[index]) : allocated;
+            return allocated;
         }
     }
 
     // 查找具体的对象
     // todo 这里可以优化性能,indexOfLen重复计算了
     public T getObject0(int len){
-        int startIndex = indexOfLen(len,false);// 先找最小
-        int endIndex = indexOfLen(len,true);
-        int firstSatisfiedIndex = 0;
-        for(; startIndex >= 0 && startIndex <= endIndex ; ++startIndex){
-            if(lengthTable[startIndex] >= len){
-                // 计算第一个满足条件的index
-                if(firstSatisfiedIndex != 0){
-                    firstSatisfiedIndex = startIndex;
-                }
-                ObjectContainer container = objectPool[startIndex];
-                if(container != null && !container.isEmpty()){
-                    doStatisticBeforeAllocate(startIndex);
-                    return container.poll();
-                }
+        int startIndex = indexOfLen(len);
+        for(;; ++startIndex){
+            ObjectContainer container = objectPool[startIndex];
+            if(container != null && !container.isEmpty()){
+                return container.poll();
+            }
+            if(lengthTable[startIndex] > 2 * len){
+                break;
             }
         }
 
         // 没有找到,那么这种情况下说明需要获取
-        doStatisticBeforeAllocate(firstSatisfiedIndex);
         return null;
     }
 
     // debug用,输出各个统计信息
+    // todo 发现bug 很多地方没有通过allocate来的
     public void print(){
         int est;
         for(int index = 0; index < allocateStatistc.length; ++index){
             est = estimate(allocateStatistc[index],deallocateStatistic[index]);
-            if(est > 0){
-                System.out.println("size: " + lengthTable[index] + " allocate: " + allocateStatistc[index] + " 次" + "release: " + deallocateStatistic[index] + " 次, est: " + est );
+            if(allocateStatistc[index] > 100){
+                System.out.println("size: " + lengthTable[index] + " allocate: " + allocateStatistc[index] +
+                        " 次" + " release: " + deallocateStatistic[index] + " 次, est: " + est +
+                        "实际复用: " + stat[index] + "新分配: " + stat2[index] + "现有队列大小:" + "" + (usePool[index] ? (objectPool[index] == null ? 0 : objectPool[index].elementData.length) : 0));
             }
+            stat2[index] = 0;
+            stat[index] = 0;
         }
     }
 
 
     // 需要创建
-    // 作为定时任务运行,每5s检查一次,是否分配的速率和释放的速率大致相等(误差不超过20%)
+    // 作为定时任务运行,每Ts检查一次,是否分配的速率和释放的速率大致相等(误差不get lock failed超过20%)
     // 如果累计的满足条件的次数超过K(K = 3)次,那么就认为可以执行了
     public void usePoolWhenNeed(int k){
         for(int index = 0; index < allocateStatistc.length; ++index){
             int est;
             if((est = estimate(allocateStatistc[index],deallocateStatistic[index])) > 0){
+                // 如果长期空着,就会是负数,折半衰减,至多10次就可以重新分配对象池
+                if(accumulation[index] < 0){
+                    accumulation[index] /= 2;
+                }
                 accumulation[index] += 1;
             }else if(est == 0){
-                accumulation[index] -= 1;// 这里衰减的稍微快一点
+                accumulation[index] -= 1;
                 // 在没有启用池化的时候,不会将accumulation[index]变成负数,因为这个时候大概率长期不满足
-                if(usePool[index] ==  false && accumulation[index] < 0){
+                if(!usePool[index] && accumulation[index] < 0){
                     accumulation[index] = 0;
                 }
             }
 
-            // 连续K次(目前k = 5)满足条件,那么就进行池化,同时会针对预测过去连续k次预测出的(分配-释放次数)进行加权求和,获得一个平均数
+            // 连续K次满足条件,那么就进行池化,同时会针对预测过去连续k次预测出的(分配-释放次数)进行加权求和,获得一个平均数
             ObjectContainer container = objectPool[index];
             if(accumulation[index] >= k){
                 accumulation[index] = 0;
                 if(objectPool[index] == null){
                     initializeOneList(index,est);
                 }else{
-                    // 存在3种情况(其中一种是不变)
                     // case1 est大于等于原来的size的1.5倍,池需要扩大
                     if(est >= container.size() * 1.5){
+                        System.out.println("resize the objectContainer");
                         container.ensureCapacity(est);
-                    }else if(est <= container.size() * 0.5 && container.size() >= 65536){
-                        // case2 est小于原来的50%,且元素比较多,那么释放多余的引用,但是不会进行缩容
+                    }
+
+                  /*  else if(est <= container.size() * 0.25 && container.size() >= 65536){
+                        // case2 est小于原来的25%,且元素比较多,那么释放多余的引用,但是不会进行缩容
                         while (container.size() > est){
                             container.poll();
                         }
-                    }
+                    }*/
                 }
-            }else if(accumulation[index] <= -64){
-                // 留一个64的Buffer,避免反复初始化 / 释放
+            }else if(accumulation[index] <= -1024){
+                // 留一个Buffer,避免反复初始化 / 释放
                 releaseOneList(index);
                 accumulation[index] = 0;
             }
@@ -242,7 +262,6 @@ public abstract class AbstractObjectPool<T extends AbstractPooledObject> impleme
         for(int index = 0; index < objectPool.length; ++index){
             allocateStatistc[index] *= scaleDown;// 分配次数进行一次衰减
             deallocateStatistic[index] *= scaleDown; // 释放次数进行一次衰减
-            //estCum[index] *= 0.3;// 让估计值进行一次衰减
         }
     }
 
@@ -251,9 +270,12 @@ public abstract class AbstractObjectPool<T extends AbstractPooledObject> impleme
     public void initializeOneList(int index,int capacity){
         if(usePool[index] == false){
             usePool[index] = true;
-            ObjectContainer tmp = objectPool[index] = new ObjectContainer(capacity);
+            // 要求元素的实际类型必须能够存储到 objectPool(由子类型通过initObjectPool来确定实际类型: StringContainer[])里面
+            // 所以不能直接生成ObjectContainer(父类型)
+            ObjectContainer tmp = objectPool[index] = getSubObjContainer(capacity);
             int initialNum = Math.min(capacity >> 1,4096);
             for(int i = 0; i < initialNum; ++i){
+                stat2[index] += 1;
                 tmp.add(newInstance(lengthTable[index]));
             }
         }
@@ -262,24 +284,32 @@ public abstract class AbstractObjectPool<T extends AbstractPooledObject> impleme
     // 释放一个类型的objectQueue
     public void releaseOneList(int index){
         if(usePool[index]){
-            usePool[index] = true;
+            System.out.println("Release One List");
+            usePool[index] = false;
             objectPool[index] = null;
         }
     }
 
     // 返回一个object
+    // 这里要求 size >= lengthTable[index],否则allocate的时候会造成分配的内存不足
     public boolean releaseObject( T obj){
-        int index = indexOfObject(obj.size());// 这里使用false是为了确保放回pool之后,每一个list的元素的长度都大于list的len
+        int size = obj.cap();
+
+        int index = indexOfLen(size);// 这里使用false是为了确保放回pool之后,每一个list的元素的长度都大于list的len
+        while (size < lengthTable[index] && index > 0){
+            index--;
+        }
+
+        doStatisticBeforeDeAllocate(index);
         if(usePool[index]){
             return objectPool[index].add(obj);// 满了就自动忽略掉
         }
-        doStatisticBeforeDeAllocate(index);
         return false;
     }
 
     // 异步线程来释放
      public void releaseInOtherThread(T obj){
-         int index = indexOfObject(obj.size());// 这里使用false是为了确保放回pool之后,每一个list的元素的长度都大于list的len
+         int index = indexOfLen(obj.size());// 这里使用false是为了确保放回pool之后,每一个list的元素的长度都大于list的len
          if(usePool[index]) {
              removedDeque.addLast(obj);
          }
@@ -288,35 +318,31 @@ public abstract class AbstractObjectPool<T extends AbstractPooledObject> impleme
      //
     // 从异步线程的队列里面获取元素并放回主线程
     public void releaseFromRemovedDeque(){
-        int i = 5000;
-        while (i-- > 0 && releaseObject(removedDeque.pollFirst())){
+        int i = 10000;
+        T first;
+        while (i-- > 0 && (first = removedDeque.pollFirst()) != null && releaseObject(first)){
         }
     }
 
-    // 利用O(1)的时间定位到cap对应的size
-    // @params useMax为true,则取较大的2^i,否则取较小的2^n,如果cap本身
-    public int indexOfLen(int cap,boolean useMax){
+    // 利用O(1)的时间定位到cap对应的index
+    // 找到第一个满足条件的index,所以先找到一半的n,然后向后找
+    public int indexOfLen(int cap){
+        int index;
         int n = RedisUtil.sizeForTable(cap);
-        n = useMax ? n : ((cap & (cap - 1)) == 0 ? cap : n >> 1);
-        if(n <= 8){
-            return 0;
-        }else if(n <= 16){
-            return 1;
+        n = (cap & (cap - 1)) == 0 ? cap : n >> 1;
+        if(n <= lengthTable[0]){
+            index = 0;
+        }else if(n <= lengthTable[1]){
+            index = 1;
+        }else{
+            index = lenIndexMap.get(n);
         }
 
-        return lenIndexMap.get(n);
-    }
-
-    // 获取返回的object对应的index
-    // 找到第一个小于等于自己大小的index
-    public int indexOfObject(int size){
-        if(size <= 8){
-            return 0;
-        }else if(size <= 16){
-            return 1;
+        while (lengthTable[index] < cap){
+            index++;
         }
 
-        int index = lenIndexMap.getOrDefault(size,-1);
-        return index >= 0 ? index : indexOfLen(size,true);
+        return index;
     }
+
 }

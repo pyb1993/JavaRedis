@@ -9,10 +9,9 @@ import RedisFuture.RedisRunnable;
 import RedisDataBase.RedisDb;
 import RedisDataBase.RedisTimerWheel;
 import RedisFuture.RedisFuture;
+import io.netty.bootstrap.Bootstrap;
 import io.netty.bootstrap.ServerBootstrap;
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.SlicedByteBuf;
-import io.netty.buffer.UnpooledHeapByteBuf;
+import io.netty.buffer.*;
 import io.netty.channel.*;
 import io.netty.channel.epoll.EpollChannelOption;
 import io.netty.channel.nio.AbstractNioByteChannel;
@@ -24,8 +23,10 @@ import io.netty.handler.timeout.IdleStateHandler;
 import Common.*;
 import RedisCommand.*;
 import io.netty.util.concurrent.EventExecutor;
+import io.netty.util.internal.SystemPropertyUtil;
 
 import java.util.LinkedList;
+import java.util.Locale;
 import java.util.concurrent.*;
 
 
@@ -63,14 +64,17 @@ public class RedisServer {
                                     .addLast(new MessageEncoder());
 
                             ch.pipeline()
+                                    .addLast(new TestCommandHandler())
                                     .addLast(new MessageDecoder())
                                     .addLast(new CommandDispatcher());
                         }});
 
-            b.option(ChannelOption.SO_BACKLOG, 8192)  // socket接受队列大小
-                    .option(ChannelOption.SO_REUSEADDR, true) // 避免端口冲突
-                    .option(ChannelOption.TCP_NODELAY, true) // 关闭小流合并，保证消息的及时性
-                    .childOption(ChannelOption.SO_KEEPALIVE, true); // 长时间没动静的链接自动关闭
+            b.option(ChannelOption.SO_BACKLOG, 2048)  // socket接受队列大小
+            .option(ChannelOption.SO_REUSEADDR, true) // 避免端口冲突
+            .option(ChannelOption.TCP_NODELAY, true) // 关闭小流合并，保证消息的及时性
+            .childOption(ChannelOption.SO_KEEPALIVE, true); // 长时间没动静的链接自动关闭
+
+
 
             ChannelFuture f = b.bind(this.ip,this.port).sync();
             Logger.log(RedisServer.class.getName() + "start and listen on " + f.channel().localAddress());
@@ -83,9 +87,11 @@ public class RedisServer {
             // 每xxms执行一次,用来执行 移除过期key 任务完成的回调
             acceptGroup.scheduleAtFixedRate(new RedisRunnable(()->RedisServer.onComplete()),2,137,TimeUnit.MILLISECONDS);
             // 先输出一下统计情况,观察一下
-            acceptGroup.scheduleAtFixedRate(new RedisRunnable(()->RedisString.pool.print()),5,100,TimeUnit.MILLISECONDS);
-            //
+            acceptGroup.scheduleAtFixedRate(new RedisRunnable(()->RedisServer.statisticForPool()),5,1000,TimeUnit.MILLISECONDS);
+            // 衰减一下
             acceptGroup.scheduleAtFixedRate(new RedisRunnable(()->RedisServer.scaleDown()),5,1000,TimeUnit.MILLISECONDS);
+            // 需要将删除的数据放回原来的地方
+            acceptGroup.scheduleAtFixedRate(new RedisRunnable(()->RedisString.pool.releaseFromRemovedDeque()),5,500,TimeUnit.MILLISECONDS);
 
             f.channel().closeFuture().sync();
             Logger.log("close done");
@@ -104,9 +110,8 @@ public class RedisServer {
     public static void statisticForPool(){
         // 首先要对RedisStringPool进行统计
         AbstractObjectPool pool = RedisString.pool;
-        pool.usePoolWhenNeed(5);
-
-
+        pool.usePoolWhenNeed(3);
+        RedisString.pool.print();
     }
 
 

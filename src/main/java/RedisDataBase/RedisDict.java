@@ -49,7 +49,10 @@ public class RedisDict<K,T>{
     // 只能在主线程开始执行
     public void startRehash() {
         if(rehashMap == null){
-            if(map.size() < 4096 && !inConcurrent()){
+
+            // todo 改大一点阈值
+            // todotodo 必须修改会这个只
+            if(map.size() < 1000000 && !inConcurrent()){
                 // 直接执行的开销很小1ms,直接做了
                 map.rehash();
                 return;
@@ -74,6 +77,7 @@ public class RedisDict<K,T>{
             rehashMap = new RedisConcurrentHashMap<>(tmp);
             lastRehash = RedisTimerWheel.getSystemTimeMillSeconds();// 这个必须在上面的逻辑之后执行,否则会导致needTrim判断错误
             // 开始提交异步任务
+
             Future rehashFuture = RedisServer.ExpireHelper
                     .submit(new RedisRunnable(
                             () -> {
@@ -89,9 +93,7 @@ public class RedisDict<K,T>{
         }
     }
 
-    // todo 只能在该RedisDict没有被其它线程持有的情况下执行, holdByOther() == true,否则延期执行
     // 因为startRehash 必须立刻执行,所以只能延迟stopRehash
-    // todo bug: 这里出现的一个奇怪的地方是: 为什么inConcurrent会变成false
 
     @Test
     public synchronized void stopRehash() {

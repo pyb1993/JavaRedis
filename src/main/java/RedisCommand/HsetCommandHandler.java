@@ -15,7 +15,8 @@ public class HsetCommandHandler implements RedisCommandHandler<RedisStringList>{
     public void handle(ChannelHandlerContext ctx, RedisString requestId, RedisStringList message){
         // 执行 set key value 的命令
         Logger.debug("hset recv :" + message.arr);
-        RedisObject val = RedisObject.redisStringObject(new RedisString(message.arr.get(2)));
+        // todo 需要优化 new RedisString
+        RedisObject val = RedisObject.redisStringObject(new RedisString(message.arr.get(2)));// 需要执行
         RedisDb.hset(new RedisString(message.arr.get(0)),new RedisString(message.arr.get(1)), val);
         ctx.writeAndFlush(new MessageOutput(requestId,hsetConstant,"1"));
     }

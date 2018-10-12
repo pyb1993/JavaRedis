@@ -24,7 +24,7 @@ public class ExpireHandler implements RedisCommandHandler<RedisString> {
 
         //RedisObject ret = RedisDb.get(key);
         RedisDb.expire(key,RedisUtil.parseInt(delay));
-        Logger.debug(requestId + " " + ctx.channel() + ":send expire ok");
+        //Logger.debug(requestId + " " + ctx.channel() + ":send expire ok");
 
         ctx.writeAndFlush(new MessageOutput(requestId,expireConstant,"ok"));
     }

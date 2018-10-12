@@ -12,6 +12,10 @@ public class RedisStringPool extends AbstractObjectPool<RedisString>{
         }
     }
 
+     public ObjectContainer getSubObjContainer(int size){
+        return new StringConatiner(size);
+    }
+
     public RedisStringPool(){
         super();
     }
@@ -19,9 +23,9 @@ public class RedisStringPool extends AbstractObjectPool<RedisString>{
     @Override
     public void initLengthTable(){
         // todo 实现长度表
-        super.lengthTable = new int[]{8,32,64,128,256,512,1024,1536,2048,3092,4096,6114,8192};
+        super.lengthTable = new int[]{4,8,16,32,48,64,96,128,256,512,1024,1536,2048,3092,4096,6114,8192};
         // todo 未来可以优化
-        super.lenIndexMap = new HashMap<Integer, Integer>(){
+        super.lenIndexMap = new HashMap<>(){
             {
                 for(int i = 0; i < lengthTable.length; ++i){
                     put(lengthTable[i],i);
@@ -41,16 +45,17 @@ public class RedisStringPool extends AbstractObjectPool<RedisString>{
         byte[] bytes = s.getBytes();
         return getString(bytes,0,bytes.length);
     }
+
     public RedisString getString(RedisString s,int start,int size){
         return getString(s.bytes,start,size);
     }
-
 
     // 因为String需要直接用byte初始化,所以单独写一个方法
     public RedisString getString(byte[] b,int pos,int len){
         RedisString ret = allocate(len);
         ret.size = len;
         System.arraycopy(b,pos,ret.bytes,0,len);
+
         // 将这个String拷贝过来
         return ret;
     }

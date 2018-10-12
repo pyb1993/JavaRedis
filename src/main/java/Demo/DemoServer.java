@@ -7,7 +7,7 @@ public class DemoServer {
     public static void main(String[] args) throws Exception{
         //Logger.logLevel = 1;
         System.out.println(ProcessHandle.current().pid());
-        RedisServer server = new RedisServer("127.0.0.1",3333);
+        RedisServer server = new RedisServer("127.0.0.1",12306);
         server.start();
     }
 }

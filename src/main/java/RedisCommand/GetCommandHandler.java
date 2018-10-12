@@ -24,7 +24,6 @@ public class GetCommandHandler implements RedisCommandHandler<RedisString> {
             //Logger.debug(requestId + " " + ctx.channel() + ":get resp " + (String) ret.getData());
         }
         ctx.writeAndFlush(new MessageOutput(requestId, getConstant, ret == null ? "" : ret.getData()));
-
     }
 }
 
