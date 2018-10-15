@@ -32,7 +32,6 @@ public class MessageInput{
         if (payload == null) {
             return null;
         }
-
         return JSON.parseObject(payload.toString(), clazz);
     }
 

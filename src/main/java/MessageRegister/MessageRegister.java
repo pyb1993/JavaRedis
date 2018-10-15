@@ -33,6 +33,7 @@ public class MessageRegister {
                 .register("set", RedisInputStringPair.class,new SetCommandHandler())
                 .register("incr", RedisInputStringPair.class,new SetCommandHandler())
                 .register("get", String.class,new GetCommandHandler())
+                .register("del", String.class,new DelCommandHandler())
                 .register("hset", RedisStringList.class, new HsetCommandHandler())
                 .register("hget",RedisInputStringPair.class, new HgetCommandHandler())
                 .register("pfadd",RedisStringList.class, new PFaddCommandHandler())

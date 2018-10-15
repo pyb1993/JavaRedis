@@ -15,17 +15,14 @@ public class ExpireHandler implements RedisCommandHandler<RedisString> {
 
     @Override
     public void handle(ChannelHandlerContext ctx, RedisString requestId, RedisString pair){
-        // 执行 get key 的命令
+        // 执行 expire key 的命令
         int len1 = RedisString.readInt(pair,0);
         RedisString key = RedisString.copyRedisString(pair,4,len1);
         int len2 = RedisString.readInt(pair,4 + len1);
         RedisString delay = RedisString.copyRedisString(pair,8 + len1,len2);
         pair.release();
-
-        //RedisObject ret = RedisDb.get(key);
         RedisDb.expire(key,RedisUtil.parseInt(delay));
-        //Logger.debug(requestId + " " + ctx.channel() + ":send expire ok");
-
+        // 这里的key不能轻易的release,因为会放在expired dict里面
         ctx.writeAndFlush(new MessageOutput(requestId,expireConstant,"ok"));
     }
 }

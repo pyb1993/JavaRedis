@@ -100,9 +100,19 @@ public class RedisDb {
     }
 
 
-    public static void set(RedisString key,RedisObject val)
+    public static boolean set(RedisString key,RedisObject val,boolean nx)
     {
-        RedisMap.put(key,val);
+        if(nx){
+            if(RedisMap.get(key) == null){
+                RedisMap.put(key,val);
+                return true;
+            }
+
+        }else{
+            RedisMap.put(key,val);
+            return true;
+        }
+        return false;
     }
 
 
@@ -114,12 +124,14 @@ public class RedisDb {
 
     // 删除
     // todo 还需要写日志
-    // todo 需要考虑对象释放的问题,在remove里面释放value最后释放key
+    // todo 需要考虑对象释放的问题,在remove里面释放value，最后释放key
     public static void del(RedisString key){
-        RedisMap.remove(key);
-        ExpiresDict.remove(key);
+        if(key != null) {
+            RedisMap.remove(key);
+            ExpiresDict.remove(key);
+            key.release();
+        }
     }
-
 
     // 设置超时
     public static void expire(RedisString key,int expireDelay){

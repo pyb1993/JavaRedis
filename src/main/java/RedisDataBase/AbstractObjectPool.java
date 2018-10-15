@@ -147,6 +147,7 @@ public abstract class AbstractObjectPool<T extends AbstractPooledObject> impleme
                 stat2[indexOfLen(len)]++;
             }
             allocated =  allocated == null ? newInstance(lengthTable[index]) : allocated;
+            allocated.cancelReleasedMark();// 取消released标志
             return allocated;
         }
     }
@@ -294,12 +295,12 @@ public abstract class AbstractObjectPool<T extends AbstractPooledObject> impleme
     // 这里要求 size >= lengthTable[index],否则allocate的时候会造成分配的内存不足
     public boolean releaseObject( T obj){
         int size = obj.cap();
-
         int index = indexOfLen(size);// 这里使用false是为了确保放回pool之后,每一个list的元素的长度都大于list的len
         while (size < lengthTable[index] && index > 0){
             index--;
         }
 
+        obj.setReleasedMark();//设置释放标志
         doStatisticBeforeDeAllocate(index);
         if(usePool[index]){
             return objectPool[index].add(obj);// 满了就自动忽略掉
@@ -309,6 +310,7 @@ public abstract class AbstractObjectPool<T extends AbstractPooledObject> impleme
 
     // 异步线程来释放
      public void releaseInOtherThread(T obj){
+         obj.setReleasedMark();//设置释放标志
          int index = indexOfLen(obj.size());// 这里使用false是为了确保放回pool之后,每一个list的元素的长度都大于list的len
          if(usePool[index]) {
              removedDeque.addLast(obj);

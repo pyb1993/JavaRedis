@@ -1,5 +1,6 @@
 package RedisDataBase;
 
+import Common.RedisUtil;
 import sun.misc.Unsafe;
 
 import javax.swing.tree.TreeNode;
@@ -62,37 +63,35 @@ class RedisHashMap<K,V>  {
     }
 
     /* 为了使用多态
-     * todo 这里需要使用对象池将原来的对象进行归还
-     * todo 连Entry都归还掉
+     *  这里需要使用对象池将原来的对象进行归还
      */
-    public void remove(Object key) {
+    public void remove(Object key,boolean releaseNow) {
         Node<K,V> e;
         e = removeNode(hash(key), key, null, false);
-        doRelease(e);
-    }
-
-    // 这里会进行release
-    public Boolean remove2(Object key){
-        Node<K,V> e;
-        V ret = (e = removeNode(hash(key), key, null, false)) == null ? null : e.value;
-        doRelease(e);
-        return ret != null;
-    }
-
-    void doRelease(Node e){
         if(e != null){
-            if(e.key instanceof AbstractPooledObject) {
-                ((AbstractPooledObject) e.key).release();
-            }
-
-            if(e.value != null && e.value instanceof AbstractPooledObject){
-                ((AbstractPooledObject) e.value).release();
-            }
-
-            // todo Release Entry自己
+            RedisUtil.doRelease(e.key,!releaseNow);
+            doReleaseRedisObject(e.value,false);
         }
     }
 
+    // 这里会进行release
+    // true代表移除成功, false代表没有这个数据
+    public Boolean remove2(Object key,boolean releaseNow){
+        Node<K,V> e;
+        e = removeNode(hash(key), key, null, false);
+        if(e != null){
+            RedisUtil.doRelease(e.key,!releaseNow);
+            doReleaseRedisObject(e.value,false);
+        }
+        return e != null;
+    }
+
+    void doReleaseRedisObject(Object ro,boolean lazy){
+        if(ro instanceof RedisObject){
+            RedisObject o = (RedisObject) ro;
+            RedisUtil.doRelease(o.getData(),lazy);//另外老的value也可以直接释放,因为不会再用到了
+        }
+    }
 
 
 
@@ -157,8 +156,15 @@ class RedisHashMap<K,V>  {
         return null;
     }
 
-    public V put(K key, V value) {
-        return putVal(hash(key), key, value, false);
+    // return true代表有老数据， return false代表没有老的数据
+    public boolean put(K key, V value,boolean releaseKeyNow) {
+        V ret = putVal(hash(key), key, value, false);
+        if(ret != null){
+            RedisUtil.doRelease(key,!releaseKeyNow);// 可能延迟释放这次的key,因为后面逻辑处理可能会用到这个key
+            doReleaseRedisObject(ret,false);
+            return true;
+        }
+        return false;
     }
 
     final V putVal(int hash, K key, V value, boolean onlyIfAbsent) {
@@ -218,8 +224,6 @@ class RedisHashMap<K,V>  {
         int oldCap = oldTab.length;
         int newCap = oldCap << 1;
 
-        // todo 严重错误
-        @SuppressWarnings({"rawtypes","unchecked"})
         Node<K,V>[] newTab = (Node<K,V>[])new Node[newCap];
         table = newTab;
         for (int j = 0; j < oldCap; ++j) {

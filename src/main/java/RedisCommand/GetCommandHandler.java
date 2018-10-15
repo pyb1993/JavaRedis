@@ -19,7 +19,7 @@ public class GetCommandHandler implements RedisCommandHandler<RedisString> {
     public void handle(ChannelHandlerContext ctx, RedisString requestId, RedisString key){
         // 执行 get key 的命令
         RedisObject ret = RedisDb.get(key);
-        key.release();
+        key.release();// 不会导致双重release,因为这个key没有被其它任何地方引用
         if(ret != null) {
             //Logger.debug(requestId + " " + ctx.channel() + ":get resp " + (String) ret.getData());
         }

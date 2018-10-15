@@ -1,6 +1,7 @@
 package RedisDataBase;
 
 import Common.Logger;
+import RedisServer.RedisServer;
 
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -86,11 +87,10 @@ public class RedisConcurrentHashMap<K,T> extends RedisHashMap<K,T>{
         while (node != null){
             // 进行rehash
             ++nodeNum;
-            rehashMap.put(node.getKey(),node.getValue());// 自动加锁
+            rehashMap.put(node.getKey(),node.getValue(),true);// 自动加锁 & 直接释放老的key
             node = node.next;
         }
 
-        // todo 如果将node进行池化,那么需要在这里释放node
         map.table[index] = null;//所有的都设置为null,这样就成功将map本身给解决了,map本身的size也应该修改
         tmpSize.addAndGet(-nodeNum);
         lock.unlock();
@@ -99,13 +99,13 @@ public class RedisConcurrentHashMap<K,T> extends RedisHashMap<K,T>{
 
     // 应该不存在其它地方可以同时运行了
     // lock必须要保存,因为remove2会释放key导致这里的key被其它线程占有而被修改
-    public void remove(Object key){
+    public void remove(Object key,boolean releaseNow){
         EasyLock lock = getLock(key);
         lock.lock();
-        Boolean ret = map.remove2(key);
+        Boolean removedSuc = map.remove2(key,false);
         lock.unlock();
 
-        if(ret){
+        if(removedSuc){
             tmpSize.decrementAndGet();
         }
     }
@@ -113,6 +113,8 @@ public class RedisConcurrentHashMap<K,T> extends RedisHashMap<K,T>{
 
     /**
      * 这里是线程安全的: 假设 因为操作只会从map -> rehashMap里面执行
+     * 这里统同样存在key被修改的可能
+     *
      * **/
     public T get(Object key){
         lock(key);
@@ -121,14 +123,19 @@ public class RedisConcurrentHashMap<K,T> extends RedisHashMap<K,T>{
         return ret;
     }
 
-    public T put(K key,T val){
-        lock(key);
-        T old = map.put(key,val);
-        if(old == null){
+    // 之所以返回boolean不返回老元素是为了避免老元素再release以后被使用,所以干脆不返回
+    // true代表有老数据,false代表没有
+    public boolean put(K key,T val,boolean releaseKeyNow){
+        EasyLock lock = getLock(key);
+        lock.lock();
+        boolean ret;
+
+        // 只有不存在老数据的时候才increment
+        if(!(ret = map.put(key,val,releaseKeyNow))){
             tmpSize.incrementAndGet();
         }
-        unlock(key);
-        return old;
+        lock.unlock();
+        return ret;
     }
 
     // 如果在主线程执行它,然后异步线程突然执行 put／get,那么将会导致线程不安全

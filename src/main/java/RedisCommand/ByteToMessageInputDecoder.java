@@ -2,6 +2,7 @@ package RedisCommand;
 
 import RedisDataBase.RedisString;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.ByteToMessageDecoder;
 import io.netty.handler.codec.DecoderException;
@@ -32,11 +33,10 @@ public class ByteToMessageInputDecoder extends ByteToMessageDecoder {
     @Override
     public void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out){
         RedisString content;
-        //goCheckpointState(in);
         switch (STATE){
             case REQ:
                 in.markReaderIndex();
-                requestId = readRedisString(in);
+                requestId = readRedisString(in,true);
                 if(requestId == null){
                     in.resetReaderIndex();
                     return;
@@ -44,19 +44,18 @@ public class ByteToMessageInputDecoder extends ByteToMessageDecoder {
                 checkPoint(TYPE,in);// 这里不要break,接下去执行
             case TYPE:
                 in.markReaderIndex();
-                type = readRedisString(in);
+                type = readRedisString(in,false);
                 if(type == null){
                     in.resetReaderIndex();return;}
                 checkPoint(CONTENT,in);// 这里不要break,接下去执行
             case CONTENT:
                 in.markReaderIndex();
-                content = readRedisString(in);
+                content = readRedisString(in,false);
                 if(content == null){
                     in.resetReaderIndex();
                     return;
                 }
 
-                // 这里存在严重bug导致set数据丢失
                 out.add(new MessageInput(type, requestId, content));
                 // 注意这里要将状态还原
                 // 这里没有状态requestId嗷嗷
@@ -67,25 +66,32 @@ public class ByteToMessageInputDecoder extends ByteToMessageDecoder {
 
 
     // 用来将String替换成 RedisString
-    private RedisString readRedisString(ByteBuf in){
-        if(in.readableBytes() < 4){
-            return null;
+    private RedisString readRedisString(ByteBuf in,boolean isReqId){
+        int len;
+        if(isReqId){
+            len = 12;
+        }else{
+            if(in.readableBytes() < 4){
+                return null;
+            }else{
+                len = in.readInt();
+                if (len < 0 || len > MAX_LEN) {
+                    throw new DecoderException("string too long len = " + len);
+                }
+            }
         }
 
-        int len = in.readInt();
-        if (len < 0 || len > MAX_LEN) {
-            throw new DecoderException("string too long len = " + len);
-        }
+        return parseRString(in,len);
+    }
 
-
+    private RedisString parseRString(ByteBuf in,int len){
         if(in.readableBytes() < len){
             return null;
-        }else{
-            RedisString str = RedisString.allocate(len);
-            in.readBytes(str.bytes,0,len);// 将str写入RedisString里面
-            str.setSize(len);
-            return str;
         }
+        RedisString str = RedisString.allocate(len);
+        in.readBytes(str.bytes,0,len);// 将str写入RedisString里面
+        str.setSize(len);
+        return str;
     }
 
     private void checkPoint(int state,ByteBuf in){

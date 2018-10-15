@@ -89,6 +89,8 @@ public class RedisString extends AbstractPooledObject {
 
     // 释放的时候要进行释放
     public void release(){
+        if(isReleased){return;}// 避免重复释放
+
         if(RedisServer.isCurrentThread()){
             pool.releaseObject(this);
         }else{

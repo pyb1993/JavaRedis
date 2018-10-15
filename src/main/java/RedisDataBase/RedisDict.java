@@ -1,5 +1,6 @@
 package RedisDataBase;
 
+import Common.RedisUtil;
 import RedisFuture.RedisRunnable;
 import RedisFuture.RehashFuture;
 import RedisServer.RedisServer;
@@ -22,7 +23,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class RedisDict<K,T>{
     RedisHashMap<K,T> map;
-    volatile RedisConcurrentHashMap<K,T> rehashMap;
+    volatile RedisConcurrentHashMap<K,T> rehashMap;// 必须是volatile变量
     MyReadWriteLock globalLock = new MyReadWriteLock();
     AtomicInteger hold = new AtomicInteger(0);//表示有几个线程持有了这个RedisDict(理论上一定是并发状态,但未必是扩容状态)
     volatile boolean inConcurrent = false;
@@ -49,10 +50,8 @@ public class RedisDict<K,T>{
     // 只能在主线程开始执行
     public void startRehash() {
         if(rehashMap == null){
-
             // todo 改大一点阈值
-            // todotodo 必须修改会这个只
-            if(map.size() < 1000000 && !inConcurrent()){
+            if(map.size() < 512 && !inConcurrent()){
                 // 直接执行的开销很小1ms,直接做了
                 map.rehash();
                 return;
@@ -101,6 +100,7 @@ public class RedisDict<K,T>{
             if(map.size() != 0){
                 System.out.println("ERROR : " + map.size());
             }
+
             assert (map.size() == 0);
             assert (!holdByOther());
 
@@ -144,15 +144,15 @@ public class RedisDict<K,T>{
         }
     }
 
-    // 在主线程执行,不需要担心状态改变
+    // 在主线程执行或者已经加锁,不需要担心状态改变
     void safePut(K key, T val){
         if(inRehashProgress()){
             // 扩容状态
-            rehashMap.put(key,val);
-            map.remove(key);// 这一步是必要的
+            map.remove(key,false);// 删除老的map的数据 & 同时延迟释放key
+            rehashMap.put(key,val,true);// 立刻释放 val 如果重复
         }else {
             // 非扩容状态
-            map.put(key,val);
+            map.put(key,val,true);
         }
     }
 
@@ -184,19 +184,17 @@ public class RedisDict<K,T>{
      * 考虑少删除的情况:
      *     如果执行到1,然后主线程立刻执行stopRehash就存在bug,这会导致原本存在rehashMap里面的元素被错误的忽略
      *
-     * 对象释放: 在这个地方是需要进行释放;
+     * 对象释放: 在这个地方是需要进行释放;但是不能立刻释放,因为这个key可能会接下来继续被使用
      *
      *
      * */
     public void remove(K key) {
-        map.remove(key);
-        // 释放数据
-
+        map.remove(key,false);// 不会立刻释放key,因为rehashMap会用到这个key
 
         if(inRehashProgress()) {
             greadLock();
             if(inRehashProgress()){
-                rehashMap.remove(key);
+                rehashMap.remove(key,false);
             }
             greadUnLock();
         }
@@ -205,6 +203,9 @@ public class RedisDict<K,T>{
         if(RedisServer.isCurrentThread() && needtrim(true)){
             startRehash();
         }
+
+        // 最后释放这个key,因为有可能rehashMap的remove没有执行
+        RedisUtil.doRelease(key,true);
     }
 
     // 是否处于并发状态

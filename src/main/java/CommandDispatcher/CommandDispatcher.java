@@ -18,9 +18,10 @@ import java.util.concurrent.*;
 public class CommandDispatcher extends ChannelInboundHandlerAdapter {
     static Set<RedisString> protocalSet = new HashSet<>() {
         {this.add(new RedisString("get"));
-        this.add(new RedisString("set"));
-        this.add(new RedisString("hget"));
-        this.add(new RedisString("expire"));
+         this.add(new RedisString("del"));
+         this.add(new RedisString("set"));
+         this.add(new RedisString("hget"));
+         this.add(new RedisString("expire"));
         }
     };
 

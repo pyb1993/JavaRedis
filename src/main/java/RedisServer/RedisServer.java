@@ -64,8 +64,8 @@ public class RedisServer {
                                     .addLast(new MessageEncoder());
 
                             ch.pipeline()
-                                    .addLast(new TestCommandHandler())
-                                    .addLast(new MessageDecoder())
+                                    .addLast(new ByteToMessageInputDecoder())
+                                    //.addLast(new MessageDecoder())
                                     .addLast(new CommandDispatcher());
                         }});
 

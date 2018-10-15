@@ -1,5 +1,6 @@
 package Common;
 
+import RedisDataBase.AbstractPooledObject;
 import RedisDataBase.RedisString;
 
 /* 辅助类 */
@@ -37,6 +38,19 @@ public class RedisUtil {
             }
         }
         return true;
+    }
+
+    // 根据lazy是否延迟释放
+    public static void doRelease(Object o,boolean lazy){
+
+        if(o instanceof AbstractPooledObject) {
+            AbstractPooledObject op = (AbstractPooledObject)o;
+            if(lazy){
+                op.enableLazyReleased();
+            }else{
+                op.release();
+            }
+        }
     }
 
     public static Integer parseInt(RedisString s){
