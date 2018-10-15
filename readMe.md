@@ -362,19 +362,18 @@ class RedisObject{
 如何设计一套合理的接口,将对象池本身逻辑抽象出来,这样实现其它的池化对象也相对简单清晰?
 
 ---
-下面就简单描述一下解决了哪些问题,和解决的思路:
-<li>1 替换所有String,体力活,要求是细心不出错,替换的时候还要重写hashcode,equal,parseInt等各种方法
-  ＜/br＞
-<li>2 如何设计一套接口体系,首先设计AbstractPooledObject这个抽象类,然后声明好length(),size(),newInstance(),release(),等抽象方法;然后设计一个AbstractObjectPool这样的抽象类,这个抽象类主要实现对象池,它具有很多组不同大小的对象container,分配的时候就迅速定位到合适大小的container,释放的时候也一样;如果找不到合适大小的container或者说没有对象可以分配,那么就调用newInstance来分配新的对象;
-＜/br＞
-<li>3 怎么设计策略? 
-   ＜/br＞
+下面就简单描述一下解决了哪些问题,和解决的思路:  
+<li>1 替换所有String,体力活,要求是细心不出错,替换的时候还要重写hashcode,equal,parseInt等各种方法    
+<li>2 如何设计一套接口体系,首先设计AbstractPooledObject这个抽象类,然后声明好length(),size(),newInstance(),release(),等抽象方法;然后设计一个AbstractObjectPool这样的抽象类,这个抽象类主要实现对象池,它具有很多组不同大小的对象container,分配的时候就迅速定位到合适大小的container,释放的时候也一样;如果找不到合适大小的container或者说没有对象可以分配,那么就调用newInstance来分配新的对象;  
+
+<li>3 怎么设计策略?    
+  
 ```
 	首先我们将对象池理解为一个管道,一边是流入的对象(release),一边是流出(allocate),那么我们取一段时间之内这两者的调和平均数作为对象池的大小,就可以比较好的适应需求; 所以需要进行统计,每次allocate的时候对申请对应大小的数组位置+1,release的时候也对对应大小的数组的位置+1; 这样就相当于统计一段时间之内分配次数和释放次数;
-	 我们考虑这样一种情况: 将JavaRedis作为一个分布式的锁的实现,也就是set一下然后很快就释放掉;这种情况下中间有一个时间差delay,可以想到在delay结束之前,是不会有release被调用的,但是只要过了这个delay,那么就有数据被释放了,中间阶段都会达成一个平衡的状态;大概像下面一样:
-		 allocate allocate ..................... allocate ........ allocate...
-		[------ delay(3s)--------] release release ..... release ......		 
-		当然中间可能存在一些波动,比如delay变化了,或者一段时间没有收到这样情况的请求;
+	 我们考虑这样一种情况: 将JavaRedis作为一个分布式的锁的实现,也就是set一下然后很快就释放掉;这种情况下中间有一个时间差delay,可以想到在delay结束之前,是不会有release被调用的,但是只要过了这个delay,那么就有数据被释放了,中间阶段都会达成一个平衡的状态;大概像下面一样:  
+<li>allocate allocate ..................... allocate ........ allocate...   
+<li>[------ delay(3s)--------] release release ..... release ......  	 
+	当然中间可能存在一些波动,比如delay变化了,或者一段时间没有收到这样情况的请求;
 	所以需要将统计的时间稍微扩大一点,变化平缓一点: 所以把这个数据当成一个时间序列我们进行加权:
 	
 allocateAccumulation[index] = allocateAccumulation[index] * scaleDown + allocateArray[index]
@@ -387,8 +386,7 @@ releaseAccumulation[index] = releaseAccumulation[index] * scaleDown + releaseArr
 ```
 
 <li>4 怎么迅速定位?
-	我们将设计对象池的长度为一系列长度 s1,s2,s3....sn,然后在中间插入 一些 2^n大小的数据,这样给定一个len,就利用JDK里面的办法先定位到第一个大于len的2^k,然后往回找一下,看哪个是第一个大于len且在我们初始化好的lengthTable里面,返回对应的index即可; 如果该池没有启用或者没有合适对象,可以尝试去更大的对象池找一下,但是不得超过所需的两倍大小;
-	
+	我们将设计对象池的长度为一系列长度 s1,s2,s3....sn,然后在中间插入 一些 2^n大小的数据,这样给定一个len,就利用JDK里面的办法先定位到第一个大于len的2^k,然后往回找一下,看哪个是第一个大于len且在我们初始化好的lengthTable里面,返回对应的index即可; 如果该池没有启用或者没有合适对象,可以尝试去更大的对象池找一下,但是不得超过所需的两倍大小;  
 	释放的时候也是一样的策略,关键是找到一个合适的长度s,使得 s <= len(注意这里和分配的要求恰恰相反,可以思考下为什么),
 	然后尝试将数据返回对应的容器,如果满了就算了;
 
@@ -400,7 +398,7 @@ releaseAccumulation[index] = releaseAccumulation[index] * scaleDown + releaseArr
 
 
 <li>6 怎么保证一个线程里面release的时候是安全的?
-首先明确问题是什么: 假设我有一个key(RedisString),这个key在什么时候应该被释放呢? 有这些场景:
+首先明确问题是什么: 假设我有一个key(RedisString),这个key在什么时候应该被释放呢? 有这些场景:  
 	1 get请求,只读请求,显然可以释放
 	2 set请求,如果这个ke已经重复了,那么可以直接释放,同时还可以释放老的value
 难点在于: 我们如何保证这个RedisString释放的时候下面没有使用了? 比如如果现在处于	rehash的状态,那么
@@ -409,11 +407,8 @@ releaseAccumulation[index] = releaseAccumulation[index] * scaleDown + releaseArr
 总结一下 Command -> RedisDb -> RedisDict -> RedisConcurrentHashMap -> RedisHashMap
 					-> RedisHashMap															
 ExpireHelper -> RedisDict也使用到了对应的调用链
-我们要找到一个合适的位置释放该释放的东西,避免提前释放的错误;
-＜/br＞
-																
-目前暂时先手动把逻辑写对,但是最好的做法将所有的释放集中到一个层面来管理:
-＜/br＞
+我们要找到一个合适的位置释放该释放的东西,避免提前释放的错误;  										
+目前暂时先手动把逻辑写对,但是最好的做法将所有的释放集中到一个层面来管理:  
 ```
 *      1 所有从CommnadHandler里面传入的key和value,我们设置一个isUsed的标记,如果这个key没有被使用过
 *      那么就直接在RedisDb这个api的层面就进行释放;如果被使用了那么就不进行释放
